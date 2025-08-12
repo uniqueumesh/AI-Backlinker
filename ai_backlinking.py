@@ -148,14 +148,15 @@ def llm_text_gen(prompt: str) -> str:
     return f"[AI Draft]\n{prompt.strip()}\n\n--\nThis is a placeholder draft."
 
 
-def scrape_website(url: str):
+def scrape_website(url: str, firecrawl_api_key: str | None = None):
     """Scrape a URL via Firecrawl if configured; otherwise return empty dict."""
-    if not FIRECRAWL_API_KEY:
+    key = firecrawl_api_key or FIRECRAWL_API_KEY
+    if not key:
         return {}
     try:
         # Firecrawl Python SDK import at runtime to avoid hard dep if absent
         from firecrawl import FirecrawlApp
-        app = FirecrawlApp(api_key=FIRECRAWL_API_KEY)
+        app = FirecrawlApp(api_key=key)
         data = app.scrape_url(url, formats=["markdown", "html"])  # type: ignore
         return data or {}
     except Exception as exc:
@@ -163,8 +164,8 @@ def scrape_website(url: str):
         return {}
 
 
-def scrape_url(url: str):
-    return scrape_website(url)
+def scrape_url(url: str, firecrawl_api_key: str | None = None):
+    return scrape_website(url, firecrawl_api_key)
 
 # Configure logger
 logger.remove()
@@ -197,7 +198,7 @@ def generate_search_queries(keyword):
     ]
 
 
-def find_backlink_opportunities(keyword):
+def find_backlink_opportunities(keyword, serper_api_key: str | None = None, firecrawl_api_key: str | None = None):
     """
     Find backlink opportunities by scraping websites based on search queries.
 
@@ -210,9 +211,11 @@ def find_backlink_opportunities(keyword):
     search_queries = generate_search_queries(keyword)
     results = []
 
-    # If Serper key is available, fetch SERPs
-    if SERPER_API_KEY:
-        headers = {"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"}
+    serper_key = serper_api_key or SERPER_API_KEY
+    firecrawl_key = firecrawl_api_key or FIRECRAWL_API_KEY
+
+    if serper_key:
+        headers = {"X-API-KEY": serper_key, "Content-Type": "application/json"}
         for q in search_queries:
             try:
                 resp = httpx.post(
@@ -228,7 +231,7 @@ def find_backlink_opportunities(keyword):
                     title = item.get("title")
                     if not url:
                         continue
-                    page = scrape_website(url)
+                    page = scrape_website(url, firecrawl_key)
                     results.append({
                         "url": url,
                         "title": title or "",

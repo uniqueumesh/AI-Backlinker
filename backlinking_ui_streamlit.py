@@ -8,13 +8,23 @@ from ai_backlinking import find_backlink_opportunities, compose_personalized_ema
 def backlinking_ui():
     st.title("AI Backlinking Tool")
 
+    # API keys (Phase 2)
+    with st.expander("API Settings", expanded=False):
+        serper_api_key = st.text_input("Serper API Key", type="password")
+        firecrawl_api_key = st.text_input("Firecrawl API Key", type="password")
+
     # Step 1: Get user inputs
-    keyword = st.text_input("Enter a keyword", value="technology")
+    keyword = st.text_input("Enter a keyword", value="AI tools + 'write for us'")
 
     # Step 2: Generate backlink opportunities
     if st.button("Find Backlink Opportunities"):
         if keyword:
-            backlink_opportunities = find_backlink_opportunities(keyword)
+            with st.spinner("Searching opportunities..."):
+                backlink_opportunities = find_backlink_opportunities(
+                    keyword,
+                    serper_api_key=serper_api_key or None,
+                    firecrawl_api_key=firecrawl_api_key or None,
+                )
 
             # Convert results to a DataFrame for display
             df = pd.DataFrame(backlink_opportunities)
