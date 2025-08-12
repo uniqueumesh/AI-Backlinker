@@ -273,6 +273,28 @@ def _classify_support_links(links: list[str]) -> tuple[str, str]:
             break
     return g_url, c_url
 
+
+def _keyword_in(text: str, keyword: str) -> bool:
+    try:
+        return keyword.lower().split(" ")[0] in (text or "").lower()
+    except Exception:
+        return False
+
+
+def _compose_notes(row: dict, keyword: str) -> str:
+    parts: list[str] = []
+    if row.get("guidelines_url"):
+        parts.append("guidelines page")
+    if row.get("contact_email"):
+        parts.append("email found")
+    elif row.get("contact_form_url"):
+        parts.append("contact form")
+    else:
+        parts.append("no contact")
+    if _keyword_in(row.get("title", ""), keyword):
+        parts.append("keyword in title")
+    return ", ".join(parts)
+
 # Configure logger
 logger.remove()
 logger.add(
@@ -368,6 +390,7 @@ def find_backlink_opportunities(
                         "domain": domain or url,
                         "notes": "",
                     }
+                    row["notes"] = _compose_notes(row, keyword)
                     unique[url] = row
             except Exception as exc:
                 logger.warning(f"Serper fetch failed for '{q}': {exc}")
