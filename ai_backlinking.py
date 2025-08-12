@@ -304,7 +304,12 @@ def generate_search_queries(keyword):
     ]
 
 
-def find_backlink_opportunities(keyword, serper_api_key: str | None = None, firecrawl_api_key: str | None = None):
+def find_backlink_opportunities(
+    keyword,
+    serper_api_key: str | None = None,
+    firecrawl_api_key: str | None = None,
+    max_results: int = 10,
+):
     """
     Find backlink opportunities by scraping websites based on search queries.
 
@@ -315,14 +320,17 @@ def find_backlink_opportunities(keyword, serper_api_key: str | None = None, fire
         list: A list of results from the scraped websites.
     """
     search_queries = generate_search_queries(keyword)
-    results = []
+    results: list[dict] = []
 
     serper_key = serper_api_key or SERPER_API_KEY
     firecrawl_key = firecrawl_api_key or FIRECRAWL_API_KEY
 
     if serper_key:
         headers = {"X-API-KEY": serper_key, "Content-Type": "application/json"}
+        unique: dict[str, dict] = {}
         for q in search_queries:
+            if len(unique) >= max_results:
+                break
             try:
                 resp = httpx.post(
                     "https://google.serper.dev/search",
@@ -333,6 +341,8 @@ def find_backlink_opportunities(keyword, serper_api_key: str | None = None, fire
                 resp.raise_for_status()
                 data = resp.json()
                 for item in (data.get("organic") or []):
+                    if len(unique) >= max_results:
+                        break
                     url = item.get("link")
                     title = item.get("title")
                     if not url:
@@ -348,7 +358,7 @@ def find_backlink_opportunities(keyword, serper_api_key: str | None = None, fire
                     g_url, c_url = _classify_support_links(links)
                     if not g_url and title and "write" in title.lower():
                         g_url = url
-                    results.append({
+                    row = {
                         "url": url,
                         "title": title or "",
                         "contact_email": best_email,
@@ -357,15 +367,15 @@ def find_backlink_opportunities(keyword, serper_api_key: str | None = None, fire
                         "guidelines_url": g_url,
                         "domain": domain or url,
                         "notes": "",
-                    })
+                    }
+                    unique[url] = row
             except Exception as exc:
                 logger.warning(f"Serper fetch failed for '{q}': {exc}")
 
-    # Deduplicate by URL
-    unique = {}
-    for row in results:
-        unique[row["url"]] = row
-    return list(unique.values())
+    # Finalize (deduped + capped)
+    if serper_key:
+        return list(unique.values())
+    return results
 
 
 def search_for_urls(query):
