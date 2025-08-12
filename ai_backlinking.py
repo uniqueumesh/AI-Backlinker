@@ -138,6 +138,8 @@ from email.mime.text import MIMEText
 import imaplib
 import email as email_module
 import httpx
+import re
+from urllib.parse import urljoin, urlparse
 
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")
 FIRECRAWL_API_KEY = os.getenv("FIRECRAWL_API_KEY")
@@ -166,6 +168,110 @@ def scrape_website(url: str, firecrawl_api_key: str | None = None):
 
 def scrape_url(url: str, firecrawl_api_key: str | None = None):
     return scrape_website(url, firecrawl_api_key)
+
+
+def _collect_page_text(page: object | None) -> tuple[str, str]:
+    """Return (markdown_text, html_text) from Firecrawl payload (dict/object) or raw string."""
+    if page is None:
+        return "", ""
+    if isinstance(page, str):
+        # best effort: assume raw text/markdown
+        return page, ""
+    md_text = ""
+    html_text = ""
+    # dict-like
+    if isinstance(page, dict):
+        for k in ("markdown", "md", "content", "text"):
+            v = page.get(k)
+            if isinstance(v, str):
+                md_text += "\n" + v
+        v_html = page.get("html")
+        if isinstance(v_html, str):
+            html_text = v_html
+        return md_text, html_text
+    # object-like (e.g., Firecrawl ScrapeResponse)
+    for k in ("markdown", "md", "content", "text"):
+        v = getattr(page, k, None)
+        if isinstance(v, str):
+            md_text += "\n" + v
+    v_html = getattr(page, "html", None)
+    if isinstance(v_html, str):
+        html_text = v_html
+    return md_text, html_text
+
+
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+
+
+def _extract_emails(text: str) -> list[str]:
+    emails = set(e.lower() for e in _EMAIL_RE.findall(text or ""))
+    # filter obvious placeholders
+    filtered = [e for e in emails if not any(bad in e for bad in ("example.com", "no-reply", "noreply"))]
+    return sorted(filtered)
+
+
+def _extract_links(html: str, base_url: str) -> list[str]:
+    links = re.findall(r'href=[\"\']([^\"\']+)', html or "")
+    normalized = []
+    for href in links:
+        if href.startswith("javascript:"):
+            continue
+        try:
+            normalized.append(urljoin(base_url, href))
+        except Exception:
+            continue
+    # dedupe while preserving order
+    seen, out = set(), []
+    for u in normalized:
+        if u not in seen:
+            seen.add(u)
+            out.append(u)
+    return out
+
+
+def _is_same_domain(email_addr: str, domain: str) -> bool:
+    try:
+        email_domain = email_addr.split("@", 1)[1]
+        return email_domain.endswith(domain)
+    except Exception:
+        return False
+
+
+def _choose_best_email(emails: list[str], domain: str) -> str:
+    if not emails:
+        return ""
+    positive = ("editor", "content", "submit", "contrib", "press", "contact", "info")
+    negative = ("sales", "job", "career", "support")
+    # Prefer same-domain + positive keywords
+    ranked = []
+    for e in emails:
+        score = 0
+        if domain and _is_same_domain(e, domain):
+            score += 3
+        if any(p in e for p in positive):
+            score += 2
+        if any(n in e for n in negative):
+            score -= 1
+        ranked.append((score, e))
+    ranked.sort(reverse=True)
+    return ranked[0][1]
+
+
+def _classify_support_links(links: list[str]) -> tuple[str, str]:
+    """Return (guidelines_url, contact_form_url) from list of links."""
+    guidelines_kw = ("write-for-us", "write for us", "guest", "contribute", "submission", "submit", "guidelines", "editorial")
+    contact_kw = ("contact", "contact-us", "contactus", "contact_us", "form")
+    g_url = ""
+    c_url = ""
+    for u in links:
+        low = u.lower()
+        if not g_url and any(k in low for k in guidelines_kw):
+            g_url = u
+        if not c_url and any(k in low for k in contact_kw):
+            c_url = u
+        if g_url and c_url:
+            break
+    return g_url, c_url
 
 # Configure logger
 logger.remove()
@@ -232,12 +338,24 @@ def find_backlink_opportunities(keyword, serper_api_key: str | None = None, fire
                     if not url:
                         continue
                     page = scrape_website(url, firecrawl_key)
+                    md_text, html_text = _collect_page_text(page)
+                    # emails
+                    emails = _extract_emails((md_text + "\n" + html_text))
+                    domain = urlparse(url).netloc
+                    best_email = _choose_best_email(emails, domain)
+                    # support links
+                    links = _extract_links(html_text, url)
+                    g_url, c_url = _classify_support_links(links)
+                    if not g_url and title and "write" in title.lower():
+                        g_url = url
                     results.append({
                         "url": url,
                         "title": title or "",
-                        "contact_email": "",  # can be parsed later
-                        "guidelines_url": url if "write" in (title or "").lower() else "",
-                        "domain": url.split("/")[2] if "//" in url else url,
+                        "contact_email": best_email,
+                        "contact_emails_all": ", ".join(emails[:5]) if emails else "",
+                        "contact_form_url": c_url,
+                        "guidelines_url": g_url,
+                        "domain": domain or url,
                         "notes": "",
                     })
             except Exception as exc:
