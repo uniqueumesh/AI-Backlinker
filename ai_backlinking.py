@@ -129,22 +129,51 @@
 #This solution will significantly streamline the backlinking process by automating the most tedious tasks, from finding sites to personalizing outreach, enabling marketers to focus on content creation and high-level strategies.
 
 
+import os
 import sys
-# from googlesearch import search  # Temporarily disabled for future enhancement
 from loguru import logger
-from lib.ai_web_researcher.firecrawl_web_crawler import scrape_website
-from lib.gpt_providers.text_generation.main_text_generation import llm_text_gen
-from lib.ai_web_researcher.firecrawl_web_crawler import scrape_url
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+import imaplib
+import email as email_module
+import httpx
+
+SERPER_API_KEY = os.getenv("SERPER_API_KEY")
+FIRECRAWL_API_KEY = os.getenv("FIRECRAWL_API_KEY")
+
+
+def llm_text_gen(prompt: str) -> str:
+    """Minimal placeholder for LLM text generation to keep this module standalone."""
+    return f"[AI Draft]\n{prompt.strip()}\n\n--\nThis is a placeholder draft."
+
+
+def scrape_website(url: str):
+    """Scrape a URL via Firecrawl if configured; otherwise return empty dict."""
+    if not FIRECRAWL_API_KEY:
+        return {}
+    try:
+        # Firecrawl Python SDK import at runtime to avoid hard dep if absent
+        from firecrawl import FirecrawlApp
+        app = FirecrawlApp(api_key=FIRECRAWL_API_KEY)
+        data = app.scrape_url(url, formats=["markdown", "html"])  # type: ignore
+        return data or {}
+    except Exception as exc:
+        logger.warning(f"Firecrawl scrape failed for {url}: {exc}")
+        return {}
+
+
+def scrape_url(url: str):
+    return scrape_website(url)
 
 # Configure logger
 logger.remove()
-logger.add(sys.stdout,
-           colorize=True,
-           format="<level>{level}</level>|<green>{file}:{line}:{function}</green>| {message}"
-           )
+logger.add(
+    sys.stdout,
+    colorize=True,
+    format="<level>{level}</level>|<green>{file}:{line}:{function}</green>| {message}"
+)
+
 
 def generate_search_queries(keyword):
     """
@@ -167,6 +196,7 @@ def generate_search_queries(keyword):
         f"{keyword} + 'Submit article'",
     ]
 
+
 def find_backlink_opportunities(keyword):
     """
     Find backlink opportunities by scraping websites based on search queries.
@@ -180,32 +210,57 @@ def find_backlink_opportunities(keyword):
     search_queries = generate_search_queries(keyword)
     results = []
 
-    # Temporarily disabled Google search functionality
-    # for query in search_queries:
-    #     urls = search_for_urls(query)
-    #     for url in urls:
-    #         website_data = scrape_website(url)
-    #         logger.info(f"Scraped Website content for {url}: {website_data}")
-    #         if website_data:
-    #             contact_info = extract_contact_info(website_data)
-    #             logger.info(f"Contact details found for {url}: {contact_info}")
-    
-    # Placeholder return for now
-    return []
+    # If Serper key is available, fetch SERPs
+    if SERPER_API_KEY:
+        headers = {"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"}
+        for q in search_queries:
+            try:
+                resp = httpx.post(
+                    "https://google.serper.dev/search",
+                    headers=headers,
+                    json={"q": q, "num": 10},
+                    timeout=30,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                for item in (data.get("organic") or []):
+                    url = item.get("link")
+                    title = item.get("title")
+                    if not url:
+                        continue
+                    page = scrape_website(url)
+                    results.append({
+                        "url": url,
+                        "title": title or "",
+                        "contact_email": "",  # can be parsed later
+                        "guidelines_url": url if "write" in (title or "").lower() else "",
+                        "domain": url.split("/")[2] if "//" in url else url,
+                        "notes": "",
+                    })
+            except Exception as exc:
+                logger.warning(f"Serper fetch failed for '{q}': {exc}")
+
+    # Deduplicate by URL
+    unique = {}
+    for row in results:
+        unique[row["url"]] = row
+    return list(unique.values())
+
 
 def search_for_urls(query):
     """
     Search for URLs using Google search.
-    
+
     Args:
         query (str): The search query.
-        
+
     Returns:
         list: List of URLs found.
     """
     # Temporarily disabled Google search functionality
     # return list(search(query, num_results=10))
     return []
+
 
 def compose_personalized_email(website_data, insights, user_proposal):
     """
@@ -225,7 +280,6 @@ def compose_personalized_email(website_data, insights, user_proposal):
     user_name = user_proposal.get("user_name", "Your Name")
     user_email = user_proposal.get("user_email", "your_email@example.com")
 
-    # Refined prompt for email generation
     email_prompt = f"""
 You are an AI assistant tasked with composing a highly personalized outreach email for guest posting.
 
@@ -248,6 +302,7 @@ Please compose a professional and engaging email that includes:
 """
 
     return llm_text_gen(email_prompt)
+
 
 def send_email(smtp_server, smtp_port, smtp_user, smtp_password, to_email, subject, body):
     """
@@ -284,6 +339,7 @@ def send_email(smtp_server, smtp_port, smtp_user, smtp_password, to_email, subje
         logger.error(f"Failed to send email to {to_email}: {e}")
         return False
 
+
 def extract_contact_info(website_data):
     """
     Extract contact information from website data.
@@ -294,11 +350,11 @@ def extract_contact_info(website_data):
     Returns:
         dict: Extracted contact information such as name, email, etc.
     """
-    # Placeholder for extracting contact information logic
     return {
         "name": website_data.get("contact", {}).get("name", "Webmaster"),
         "email": website_data.get("contact", {}).get("email", ""),
     }
+
 
 def find_backlink_opportunities_for_keywords(keywords):
     """
@@ -316,6 +372,7 @@ def find_backlink_opportunities_for_keywords(keywords):
         all_results[keyword] = results
     return all_results
 
+
 def log_sent_email(keyword, email_info):
     """
     Log the information of a sent email.
@@ -326,6 +383,7 @@ def log_sent_email(keyword, email_info):
     """
     with open(f"{keyword}_sent_emails.log", "a") as log_file:
         log_file.write(f"{email_info}\n")
+
 
 def check_email_responses(imap_server, imap_user, imap_password):
     """
@@ -351,7 +409,7 @@ def check_email_responses(imap_server, imap_user, imap_password):
 
         for mail_id in id_list:
             status, data = mail.fetch(mail_id, '(RFC822)')
-            msg = email.message_from_bytes(data[0][1])
+            msg = email_module.message_from_bytes(data[0][1])
             if msg.is_multipart():
                 for part in msg.walk():
                     if part.get_content_type() == 'text/plain':
@@ -364,6 +422,7 @@ def check_email_responses(imap_server, imap_user, imap_password):
         logger.error(f"Failed to check email responses: {e}")
 
     return responses
+
 
 def send_follow_up_email(smtp_server, smtp_port, smtp_user, smtp_password, to_email, subject, body):
     """
@@ -382,42 +441,3 @@ def send_follow_up_email(smtp_server, smtp_port, smtp_user, smtp_password, to_em
         bool: True if the email was sent successfully, False otherwise.
     """
     return send_email(smtp_server, smtp_port, smtp_user, smtp_password, to_email, subject, body)
-
-def main_backlinking_workflow(keywords, smtp_config, imap_config, user_proposal):
-    """
-    Main workflow for the AI-powered backlinking feature.
-
-    Args:
-        keywords (list): A list of keywords to search for backlink opportunities.
-        smtp_config (dict): SMTP configuration for sending emails.
-        imap_config (dict): IMAP configuration for checking email responses.
-        user_proposal (dict): The user's proposal for a guest post or content contribution.
-
-    Returns:
-        None
-    """
-    all_results = find_backlink_opportunities_for_keywords(keywords)
-
-    for keyword, results in all_results.items():
-        for result in results:
-            email_body = compose_personalized_email(result, result['insights'], user_proposal)
-            email_sent = send_email(
-                smtp_config['server'],
-                smtp_config['port'],
-                smtp_config['user'],
-                smtp_config['password'],
-                result['contact_info']['email'],
-                f"Guest Post Proposal for {result['metadata']['title']}",
-                email_body
-            )
-            if email_sent:
-                log_sent_email(keyword, {
-                    "to": result['contact_info']['email'],
-                    "subject": f"Guest Post Proposal for {result['metadata']['title']}",
-                    "body": email_body
-                })
-
-    responses = check_email_responses(imap_config['server'], imap_config['user'], imap_config['password'])
-    for response in responses:
-        # TBD : Process and possibly send follow-up emails based on responses
-        pass
