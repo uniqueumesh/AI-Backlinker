@@ -304,7 +304,28 @@ logger.add(
 )
 
 
+def _sanitize_keyword(keyword: str) -> str:
+    """Remove common footprints from user input so we add them ourselves.
+    Examples removed: write for us, guest post, submit guest post, become a guest blogger, etc.
+    """
+    base = (keyword or "").strip()
+    # remove quotes and pluses users might add
+    base = base.replace("+", " ").replace("\"", "").replace("'", "")
+    footprints = [
+        "write for us", "guest post", "guest posts", "submit guest post", "guest blogger",
+        "become a guest blogger", "guest contributor", "submission", "guidelines", "submit article",
+        "inurl:write-for-us", "intitle:write for us"
+    ]
+    low = base.lower()
+    for f in footprints:
+        low = low.replace(f, " ")
+    # collapse spaces
+    cleaned = " ".join(low.split())
+    return cleaned
+
+
 def generate_search_queries(keyword):
+    keyword = _sanitize_keyword(keyword)
     """
     Generate a list of search queries for finding guest post opportunities.
 
@@ -315,14 +336,14 @@ def generate_search_queries(keyword):
         list: A list of search queries.
     """
     return [
-        f"{keyword} + 'Guest Contributor'",
-        f"{keyword} + 'Add Guest Post'",
-        f"{keyword} + 'Guest Bloggers Wanted'",
-        f"{keyword} + 'Write for Us'",
-        f"{keyword} + 'Submit Guest Post'",
-        f"{keyword} + 'Become a Guest Blogger'",
-        f"{keyword} + 'guest post opportunities'",
-        f"{keyword} + 'Submit article'",
+        f"{keyword} 'write for us'",
+        f"{keyword} 'guest post'",
+        f"{keyword} 'submit guest post'",
+        f"{keyword} 'guest contributor'",
+        f"{keyword} 'become a guest blogger'",
+        f"{keyword} 'editorial guidelines'",
+        f"{keyword} 'contribute'",
+        f"{keyword} 'submit article'",
     ]
 
 
