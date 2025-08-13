@@ -842,6 +842,8 @@ if __name__ == "__main__":  # pragma: no cover
     parser.add_argument("--take", type=int, default=5, help="Generate emails for top N rows with contact emails (fallback to others if fewer)")
     parser.add_argument("--urls", default="", help="Comma-separated URLs to use instead of search (for offline testing)")
     parser.add_argument("--out-csv", default="generated_emails_cli.csv", help="Path to save CSV output")
+    parser.add_argument("--out-results", default="", help="Optional path to save Phase 2 scraped results as CSV")
+    parser.add_argument("--in-results", default="", help="Optional path to load Phase 2 results from CSV (skip search)")
 
     args = parser.parse_args()
 
@@ -882,6 +884,34 @@ if __name__ == "__main__":  # pragma: no cover
     if urls_override:
         logger.info("CLI: Phase 2 bypass (URLs provided): count={n}", n=len(urls_override))
         results = [build_row_from_url(u) for u in urls_override]
+    elif args.in_results:
+        in_path = Path(args.in_results)
+        if not in_path.exists():
+            logger.warning("CLI: --in-results provided but file not found: {p}", p=str(in_path))
+            results = []
+        else:
+            try:
+                with in_path.open("r", encoding="utf-8") as rf:
+                    reader = csv.DictReader(rf)
+                    loaded: list[dict] = []
+                    for row in reader:
+                        loaded.append({
+                            "url": row.get("url", ""),
+                            "domain": row.get("domain", ""),
+                            "title": row.get("title", ""),
+                            "contact_email": row.get("contact_email", ""),
+                            "contact_emails_all": row.get("contact_emails_all", ""),
+                            "contact_form_url": row.get("contact_form_url", ""),
+                            "guidelines_url": row.get("guidelines_url", ""),
+                            "context_source": row.get("context_source", "loaded"),
+                            "page_excerpt": row.get("page_excerpt", ""),
+                            "notes": row.get("notes", ""),
+                        })
+                logger.info("CLI: Phase 2 loaded from CSV: rows={n} file={p}", n=len(loaded), p=str(in_path))
+                results = loaded
+            except Exception as _exc:
+                logger.warning(f"CLI: failed to load --in-results CSV: {_exc}")
+                results = []
     else:
         logger.info("CLI: Phase 2 starting: keyword='{kw}' max_results={mr}", kw=args.keyword, mr=args.max_results)
         results = find_backlink_opportunities(
@@ -891,8 +921,47 @@ if __name__ == "__main__":  # pragma: no cover
             max_results=args.max_results,
         )
     logger.info("CLI: Phase 2 done: results={n}", n=len(results))
+
+    # Optionally write Phase 2 results to CSV for inspection/debugging
+    if args.out_results:
+        try:
+            rp = Path(args.out_results)
+            if rp.parent and not rp.parent.exists():
+                rp.parent.mkdir(parents=True, exist_ok=True)
+            with rp.open("w", newline="", encoding="utf-8") as rf:
+                rwriter = csv.DictWriter(
+                    rf,
+                    fieldnames=[
+                        "url",
+                        "domain",
+                        "title",
+                        "contact_email",
+                        "contact_emails_all",
+                        "contact_form_url",
+                        "guidelines_url",
+                        "context_source",
+                        "page_excerpt",
+                    ],
+                )
+                rwriter.writeheader()
+                for r in results:
+                    rwriter.writerow({
+                        "url": r.get("url", ""),
+                        "domain": r.get("domain", ""),
+                        "title": r.get("title", ""),
+                        "contact_email": r.get("contact_email", ""),
+                        "contact_emails_all": r.get("contact_emails_all", ""),
+                        "contact_form_url": r.get("contact_form_url", ""),
+                        "guidelines_url": r.get("guidelines_url", ""),
+                        "context_source": r.get("context_source", ""),
+                        "page_excerpt": r.get("page_excerpt", ""),
+                    })
+            logger.info("CLI: wrote Phase 2 results CSV -> {p}", p=str(rp.resolve()))
+        except Exception as _exc:
+            logger.warning(f"CLI: failed to write Phase 2 results CSV: {_exc}")
+
     if not results:
-        logger.warning("CLI: no results found")
+        logger.warning("CLI: no results found. If offline or missing SERPER_API_KEY, use --urls for offline test or set SERPER_API_KEY.")
         sys.exit(0)
 
     # Prefer rows with contact_email
@@ -924,6 +993,12 @@ if __name__ == "__main__":  # pragma: no cover
     logger.info("CLI: Phase 3 done: ok={ok} fallback={fb} error={er}", ok=ok, fb=fb, er=er)
 
     out_path = Path(args.out_csv)
+    # Ensure parent directory exists
+    try:
+        if out_path.parent and not out_path.parent.exists():
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+    except Exception as _exc:
+        logger.warning(f"CLI: could not ensure output directory exists: {_exc}")
     with out_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(
             f,
