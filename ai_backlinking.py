@@ -143,11 +143,57 @@ from urllib.parse import urljoin, urlparse
 
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")
 FIRECRAWL_API_KEY = os.getenv("FIRECRAWL_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 
-def llm_text_gen(prompt: str) -> str:
-    """Minimal placeholder for LLM text generation to keep this module standalone."""
-    return f"[AI Draft]\n{prompt.strip()}\n\n--\nThis is a placeholder draft."
+def llm_text_gen(
+    prompt: str,
+    provider: str = "gemini",
+    model: str | None = None,
+    openai_api_key: str | None = None,
+    gemini_api_key: str | None = None,
+) -> str:
+    """Generate text using selected provider (Gemini or OpenAI), with graceful fallback."""
+    provider_normalized = (provider or "").strip().lower()
+    if provider_normalized in ("gemini", "google", "google-gemini"):
+        key = gemini_api_key or GEMINI_API_KEY
+        if not key:
+            return f"[AI Draft]\n{prompt.strip()}\n\n--\nThis is a placeholder draft (no Gemini API key)."
+        try:
+            import google.generativeai as genai  # type: ignore
+            genai.configure(api_key=key)
+            model_name = model or "gemini-2.5-flash"
+            gmodel = genai.GenerativeModel(model_name)
+            resp = gmodel.generate_content(prompt)
+            text = getattr(resp, "text", None)
+            return (text or "").strip() or f"[AI Draft]\n{prompt.strip()}\n\n--\nNo content returned."
+        except Exception as exc:
+            logger.warning(f"Gemini generation failed: {exc}")
+            return f"[AI Draft]\n{prompt.strip()}\n\n--\nThis is a placeholder draft (Gemini error)."
+
+    # Default to OpenAI
+    key = openai_api_key or OPENAI_API_KEY
+    if not key:
+        return f"[AI Draft]\n{prompt.strip()}\n\n--\nThis is a placeholder draft (no OpenAI API key)."
+    try:
+        from openai import OpenAI  # type: ignore
+        client = OpenAI(api_key=key)
+        model_name = model or "gpt-4o-mini"
+        response = client.chat.completions.create(
+            model=model_name,
+            temperature=0.7,
+            max_tokens=700,
+            messages=[
+                {"role": "system", "content": "You are a helpful outreach assistant who writes concise, friendly, highly personalized guest-post outreach emails."},
+                {"role": "user", "content": prompt},
+            ],
+        )
+        content = (response.choices[0].message.content or "").strip()
+        return content or f"[AI Draft]\n{prompt.strip()}\n\n--\nNo content returned."
+    except Exception as exc:
+        logger.warning(f"OpenAI generation failed: {exc}")
+        return f"[AI Draft]\n{prompt.strip()}\n\n--\nThis is a placeholder draft (OpenAI error)."
 
 
 def scrape_website(url: str, firecrawl_api_key: str | None = None):
@@ -198,6 +244,39 @@ def _collect_page_text(page: object | None) -> tuple[str, str]:
     if isinstance(v_html, str):
         html_text = v_html
     return md_text, html_text
+
+
+def _strip_html_tags(html: str) -> str:
+    try:
+        return re.sub(r"<[^>]+>", " ", html or "")
+    except Exception:
+        return html or ""
+
+
+def _collapse_whitespace(text: str) -> str:
+    return " ".join((text or "").split())
+
+
+def _http_fetch_text(url: str, timeout_s: int = 15) -> tuple[str, str]:
+    """Fetch raw HTML via httpx and return (text, html). Safe, best-effort."""
+    try:
+        resp = httpx.get(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml",
+            },
+            follow_redirects=True,
+            timeout=timeout_s,
+        )
+        if resp.status_code >= 400:
+            return "", ""
+        html = resp.text or ""
+        text = _strip_html_tags(html)
+        return _collapse_whitespace(text), html
+    except Exception as exc:
+        logger.warning(f"HTTP fallback fetch failed for {url}: {exc}")
+        return "", ""
 
 
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
@@ -299,9 +378,9 @@ def _compose_notes(row: dict, keyword: str) -> str:
 logger.remove()
 logger.add(
     sys.stdout,
-    colorize=True,
-    format="<level>{level}</level>|<green>{file}:{line}:{function}</green>| {message}"
-)
+           colorize=True,
+           format="<level>{level}</level>|<green>{file}:{line}:{function}</green>| {message}"
+           )
 
 
 def _sanitize_keyword(keyword: str) -> str:
@@ -392,6 +471,27 @@ def find_backlink_opportunities(
                         continue
                     page = scrape_website(url, firecrawl_key)
                     md_text, html_text = _collect_page_text(page)
+                    context_source = "firecrawl"
+                    # best-effort excerpt for LLM insights
+                    raw_text = (md_text or "").strip()
+                    if not raw_text and html_text:
+                        raw_text = _strip_html_tags(html_text)
+                    excerpt = _collapse_whitespace(raw_text)[:1500]
+                    # If Firecrawl yielded nothing, try HTTP fallback
+                    if not excerpt:
+                        context_source = "httpx"
+                        http_text, http_html = _http_fetch_text(url)
+                        if http_text:
+                            excerpt = http_text[:1500]
+                            html_text = http_html or html_text
+                        else:
+                            # Last resort: use Serper organic snippet
+                            snippet = item.get("snippet") or item.get("description") or ""
+                            if snippet:
+                                context_source = "serper_snippet"
+                                excerpt = _collapse_whitespace(snippet)[:600]
+                            else:
+                                context_source = "empty"
                     # emails
                     emails = _extract_emails((md_text + "\n" + html_text))
                     domain = urlparse(url).netloc
@@ -410,6 +510,8 @@ def find_backlink_opportunities(
                         "guidelines_url": g_url,
                         "domain": domain or url,
                         "notes": "",
+                        "page_excerpt": excerpt,
+                        "context_source": context_source,
                     }
                     row["notes"] = _compose_notes(row, keyword)
                     unique[url] = row
@@ -425,10 +527,10 @@ def find_backlink_opportunities(
 def search_for_urls(query):
     """
     Search for URLs using Google search.
-
+    
     Args:
         query (str): The search query.
-
+        
     Returns:
         list: List of URLs found.
     """
@@ -437,7 +539,15 @@ def search_for_urls(query):
     return []
 
 
-def compose_personalized_email(website_data, insights, user_proposal):
+def compose_personalized_email(
+    website_data,
+    insights,
+    user_proposal,
+    provider: str = "gemini",
+    model: str | None = None,
+    openai_api_key: str | None = None,
+    gemini_api_key: str | None = None,
+):
     """
     Compose a personalized outreach email using AI LLM based on website data, insights, and user proposal.
 
@@ -450,7 +560,8 @@ def compose_personalized_email(website_data, insights, user_proposal):
         str: A personalized email message.
     """
     contact_name = website_data.get("contact_info", {}).get("name", "Webmaster")
-    site_name = website_data.get("metadata", {}).get("title", "your site")
+    # Prefer explicit metadata title, else domain as site name
+    site_name = website_data.get("metadata", {}).get("title") or website_data.get("domain") or "your site"
     proposed_topic = user_proposal.get("topic", "a guest post")
     user_name = user_proposal.get("user_name", "Your Name")
     user_email = user_proposal.get("user_email", "your_email@example.com")
@@ -476,7 +587,13 @@ Please compose a professional and engaging email that includes:
 5. A polite closing with user contact details.
 """
 
-    return llm_text_gen(email_prompt)
+    return llm_text_gen(
+        email_prompt,
+        provider=provider,
+        model=model,
+        openai_api_key=openai_api_key,
+        gemini_api_key=gemini_api_key,
+    )
 
 
 def send_email(smtp_server, smtp_port, smtp_user, smtp_password, to_email, subject, body):
@@ -616,3 +733,199 @@ def send_follow_up_email(smtp_server, smtp_port, smtp_user, smtp_password, to_em
         bool: True if the email was sent successfully, False otherwise.
     """
     return send_email(smtp_server, smtp_port, smtp_user, smtp_password, to_email, subject, body)
+
+
+# ----------------------------
+# CLI helpers for terminal use
+# ----------------------------
+
+def _strip_subject_prefix(text: str) -> str:
+    t = (text or "").lstrip()
+    if t.lower().startswith("subject:"):
+        parts = t.splitlines()
+        return "\n".join(parts[1:]).lstrip()
+    return text
+
+
+def generate_emails_for_rows(
+    rows: list[dict],
+    subject: str,
+    your_name: str,
+    your_email: str,
+    proposed_topic: str | None,
+    provider: str = "gemini",
+    model: str | None = None,
+    serper_api_key: str | None = None,  # unused here but kept for parity
+    firecrawl_api_key: str | None = None,  # unused here but kept for parity
+    gemini_api_key: str | None = None,
+    openai_api_key: str | None = None,
+) -> list[dict]:
+    generated: list[dict] = []
+    for row in rows:
+        insights = row.get("page_excerpt") or row.get("notes") or f"Page: {row.get('url','')}"
+        body = compose_personalized_email(
+            row,
+            insights,
+            {
+                "user_name": your_name,
+                "user_email": your_email,
+                "topic": proposed_topic or "a guest post",
+            },
+            provider=provider,
+            model=model,
+            openai_api_key=openai_api_key,
+            gemini_api_key=gemini_api_key,
+        )
+        body = _strip_subject_prefix(body)
+        status = "ok"
+        note = ""
+        if body.startswith("[AI Draft]"):
+            status = "fallback"
+            note = "LLM placeholder (missing key or error)"
+        generated.append(
+            {
+                "to_email": row.get("contact_email", ""),
+                "subject": subject,
+                "body": body,
+                "url": row.get("url", ""),
+                "domain": row.get("domain", ""),
+                "title": row.get("title", ""),
+                "context_source": row.get("context_source", ""),
+                "excerpt_chars": len(row.get("page_excerpt") or ""),
+                "status": status,
+                "note": note,
+                "provider": provider,
+                "model": model or "",
+            }
+        )
+    return generated
+
+
+if __name__ == "__main__":  # pragma: no cover
+    import argparse
+    import csv
+    from pathlib import Path
+
+    parser = argparse.ArgumentParser(description="AI Backlinker CLI (Phase 2 + Phase 3)")
+    parser.add_argument("keyword", help="Seed keyword, e.g. 'AI tools'")
+    parser.add_argument("--max-results", type=int, default=10, dest="max_results")
+    parser.add_argument("--subject", default="Guest post collaboration")
+    parser.add_argument("--your-name", default=os.getenv("YOUR_NAME", "John Doe"))
+    parser.add_argument("--your-email", default=os.getenv("YOUR_EMAIL", "john@example.com"))
+    parser.add_argument("--topic", default="a guest post")
+
+    parser.add_argument("--provider", default=os.getenv("LLM_PROVIDER", "gemini"))
+    parser.add_argument("--model", default=os.getenv("LLM_MODEL", "gemini-2.5-flash"))
+
+    parser.add_argument("--serper-key", default=os.getenv("SERPER_API_KEY"))
+    parser.add_argument("--firecrawl-key", default=os.getenv("FIRECRAWL_API_KEY"))
+    parser.add_argument("--gemini-key", default=os.getenv("GEMINI_API_KEY"))
+    parser.add_argument("--openai-key", default=os.getenv("OPENAI_API_KEY"))
+
+    parser.add_argument("--take", type=int, default=5, help="Generate emails for top N rows with contact emails (fallback to others if fewer)")
+    parser.add_argument("--urls", default="", help="Comma-separated URLs to use instead of search (for offline testing)")
+    parser.add_argument("--out-csv", default="generated_emails_cli.csv", help="Path to save CSV output")
+
+    args = parser.parse_args()
+
+    def build_row_from_url(u: str) -> dict:
+        page = scrape_website(u, args.firecrawl_key)
+        md_text, html_text = _collect_page_text(page)
+        # Excerpt
+        raw_text = (md_text or "").strip()
+        context_source = "firecrawl" if raw_text or html_text else "httpx"
+        if not raw_text and html_text:
+            raw_text = _strip_html_tags(html_text)
+        if not raw_text:
+            text_http, html_http = _http_fetch_text(u)
+            raw_text = text_http
+            html_text = html_http or html_text
+        excerpt = _collapse_whitespace(raw_text)[:1500]
+        # Emails / links
+        emails = _extract_emails((md_text + "\n" + html_text))
+        domain = urlparse(u).netloc
+        best_email = _choose_best_email(emails, domain)
+        links = _extract_links(html_text, u)
+        g_url, c_url = _classify_support_links(links)
+        row = {
+            "url": u,
+            "title": "",
+            "contact_email": best_email,
+            "contact_emails_all": ", ".join(emails[:5]) if emails else "",
+            "contact_form_url": c_url,
+            "guidelines_url": g_url,
+            "domain": domain or u,
+            "notes": "",
+            "page_excerpt": excerpt,
+            "context_source": context_source,
+        }
+        return row
+
+    urls_override = [s.strip() for s in (args.urls or "").split(",") if s.strip()]
+    if urls_override:
+        logger.info("CLI: Phase 2 bypass (URLs provided): count={n}", n=len(urls_override))
+        results = [build_row_from_url(u) for u in urls_override]
+    else:
+        logger.info("CLI: Phase 2 starting: keyword='{kw}' max_results={mr}", kw=args.keyword, mr=args.max_results)
+        results = find_backlink_opportunities(
+            args.keyword,
+            serper_api_key=args.serper_key,
+            firecrawl_api_key=args.firecrawl_key,
+            max_results=args.max_results,
+        )
+    logger.info("CLI: Phase 2 done: results={n}", n=len(results))
+    if not results:
+        logger.warning("CLI: no results found")
+        sys.exit(0)
+
+    # Prefer rows with contact_email
+    with_email = [r for r in results if r.get("contact_email")]
+    others = [r for r in results if not r.get("contact_email")]
+    selected = (with_email + others)[: args.take]
+
+    logger.info(
+        "CLI: Phase 3 starting: provider={prov} model={model} rows={rows}",
+        prov=args.provider,
+        model=args.model,
+        rows=len(selected),
+    )
+    emails = generate_emails_for_rows(
+        selected,
+        subject=args.subject,
+        your_name=args.your_name,
+        your_email=args.your_email,
+        proposed_topic=args.topic,
+        provider=args.provider,
+        model=args.model,
+        gemini_api_key=args.gemini_key,
+        openai_api_key=args.openai_key,
+    )
+
+    ok = sum(1 for e in emails if e["status"] == "ok")
+    fb = sum(1 for e in emails if e["status"] == "fallback")
+    er = sum(1 for e in emails if e["status"] == "error")
+    logger.info("CLI: Phase 3 done: ok={ok} fallback={fb} error={er}", ok=ok, fb=fb, er=er)
+
+    out_path = Path(args.out_csv)
+    with out_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=[
+                "to_email",
+                "subject",
+                "body",
+                "url",
+                "domain",
+                "title",
+                "context_source",
+                "excerpt_chars",
+                "status",
+                "note",
+                "provider",
+                "model",
+            ],
+        )
+        writer.writeheader()
+        for e in emails:
+            writer.writerow(e)
+    logger.info("CLI: wrote CSV -> {p}", p=str(out_path.resolve()))
