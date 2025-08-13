@@ -426,6 +426,23 @@ def generate_search_queries(keyword):
     ]
 
 
+def _serper_reachable(api_key: str) -> bool:
+    """Best-effort check to avoid spamming errors when offline or DNS fails.
+    Returns False quickly if https://google.serper.dev is not reachable.
+    """
+    try:
+        # Lightweight GET to the root with short timeout. Some environments block HEAD.
+        httpx.get(
+            "https://google.serper.dev",
+            timeout=3,
+            headers={"X-API-KEY": api_key} if api_key else None,
+        )
+        return True
+    except Exception as exc:
+        logger.warning(f"Serper appears unreachable (network/DNS): {exc}. Skipping search.")
+        return False
+
+
 def find_backlink_opportunities(
     keyword,
     serper_api_key: str | None = None,
@@ -447,7 +464,7 @@ def find_backlink_opportunities(
     serper_key = serper_api_key or SERPER_API_KEY
     firecrawl_key = firecrawl_api_key or FIRECRAWL_API_KEY
 
-    if serper_key:
+    if serper_key and _serper_reachable(serper_key):
         headers = {"X-API-KEY": serper_key, "Content-Type": "application/json"}
         unique: dict[str, dict] = {}
         for q in search_queries:
