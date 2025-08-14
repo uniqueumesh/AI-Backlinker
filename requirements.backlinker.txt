@@ -6,3 +6,4 @@ httpx==0.28.1
 python-dotenv==1.0.1
 firecrawl-py==2.16.5
 google-generativeai==0.8.3
+sendgrid==6.11.0
