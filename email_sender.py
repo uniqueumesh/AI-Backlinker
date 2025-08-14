@@ -13,6 +13,11 @@ try:
 except Exception:  # pragma: no cover
     sendgrid = None  # type: ignore
 
+try:
+    from mailersend import emails as mailersend_emails  # type: ignore
+except Exception:  # pragma: no cover
+    mailersend_emails = None  # type: ignore
+
 
 def _require_env(name: str) -> str:
     value = os.getenv(name)
@@ -209,14 +214,96 @@ def send_bulk_smtp(
     return outcomes
 
 
+def send_one_mailersend(
+    to_email: str,
+    subject: str,
+    body_text: str,
+    *,
+    from_email: str,
+    body_html: Optional[str] = None,
+) -> bool:
+    """Send a single email via MailerSend using the simple NewApiClient().send API.
+
+    Returns True on success.
+    """
+    if mailersend_emails is None:
+        raise RuntimeError("mailersend package not installed. Add 'mailersend' to requirements and install.")
+
+    api_key = os.getenv("MAILERSEND_API_KEY")
+    if not api_key:
+        raise ValueError("Missing MAILERSEND_API_KEY environment variable")
+
+    # Official SDK pattern
+    mail = mailersend_emails.NewEmail(api_key)  # type: ignore[attr-defined]
+    mail.set_mail_from({"email": from_email})
+    mail.set_mail_to([{ "email": to_email }])
+    mail.set_subject(subject)
+    mail.set_plaintext_content(body_text or "")
+    mail.set_html_content((body_html if body_html is not None else body_text) or "")
+    resp = mail.send()
+    try:
+        # Some SDK versions return requests.Response-like; others dict
+        status = getattr(resp, "status_code", None)
+        if isinstance(status, int):
+            return status in (200, 202)
+        return bool(resp)
+    except Exception:
+        return bool(resp)
+
+
+def send_bulk_mailersend(
+    in_csv: str,
+    *,
+    from_email: str,
+    rate_limit_per_sec: float = 10.0,
+    dry_run: bool = False,
+) -> List[Dict]:
+    """Bulk send via MailerSend from a CSV with columns: to_email, subject, body.
+
+    Returns list of outcomes per row.
+    """
+    outcomes: List[Dict] = []
+    delay = 1.0 / max(1.0, rate_limit_per_sec)
+
+    with open(in_csv, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for i, row in enumerate(reader, start=1):
+            to_email = (row.get("to_email") or "").strip()
+            subject = row.get("subject") or ""
+            body = row.get("body") or ""
+            if not to_email:
+                outcomes.append({"row": i, "to_email": "", "status": "skipped"})
+                continue
+
+            if dry_run:
+                logger.info(f"[dry-run] would send to {to_email}: {subject}")
+                outcomes.append({"row": i, "to_email": to_email, "status": "dry_run"})
+                continue
+
+            try:
+                ok = send_one_mailersend(
+                    to_email=to_email,
+                    subject=subject,
+                    body_text=body,
+                    from_email=from_email,
+                )
+                outcomes.append({"row": i, "to_email": to_email, "status": "sent" if ok else "error"})
+            except Exception as exc:
+                logger.error(f"MailerSend send failed for {to_email}: {exc}")
+                outcomes.append({"row": i, "to_email": to_email, "status": "error", "message": str(exc)})
+            time.sleep(delay)
+
+    return outcomes
+
+
 if __name__ == "__main__":  # pragma: no cover
     import argparse
     from pathlib import Path
 
-    parser = argparse.ArgumentParser(description="Send emails from CSV via SendGrid or SMTP (GoDaddy).")
+    parser = argparse.ArgumentParser(description="Send emails from CSV via SendGrid, MailerSend, or SMTP (GoDaddy).")
     parser.add_argument("--in-csv", required=True, help="Input CSV with columns: to_email, subject, body")
-    parser.add_argument("--from-email", required=True, help="Sender address (must be verified for SendGrid)")
-    parser.add_argument("--provider", choices=["sendgrid", "smtp"], default="sendgrid")
+    parser.add_argument("--from-email", required=True, help="Sender address (must be verified where required)")
+    parser.add_argument("--provider", choices=["sendgrid", "mailersend", "smtp"], default="sendgrid")
     parser.add_argument("--rate", type=float, default=10.0, help="Max emails per second")
     parser.add_argument("--dry-run", action="store_true")
 
@@ -244,6 +331,13 @@ if __name__ == "__main__":  # pragma: no cover
             from_email=args.from_email,
             api_key=args.sendgrid_key,
             sandbox=args.sandbox,
+            rate_limit_per_sec=args.rate,
+            dry_run=args.dry_run,
+        )
+    elif args.provider == "mailersend":
+        results = send_bulk_mailersend(
+            str(in_path),
+            from_email=args.from_email,
             rate_limit_per_sec=args.rate,
             dry_run=args.dry_run,
         )
