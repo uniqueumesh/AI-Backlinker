@@ -94,7 +94,7 @@ def send_bulk_sendgrid(
     outcomes: List[Dict] = []
     delay = 1.0 / max(1.0, rate_limit_per_sec)
 
-    with open(in_csv, "r", encoding="utf-8") as f:
+    with open(in_csv, "r", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
         for i, row in enumerate(reader, start=1):
             to_email = (row.get("to_email") or "").strip()
@@ -179,7 +179,7 @@ def send_bulk_smtp(
     outcomes: List[Dict] = []
     delay = 1.0 / max(1.0, rate_limit_per_sec)
 
-    with open(in_csv, "r", encoding="utf-8") as f:
+    with open(in_csv, "r", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
         for i, row in enumerate(reader, start=1):
             to_email = (row.get("to_email") or "").strip()
@@ -265,7 +265,7 @@ def send_bulk_mailersend(
     outcomes: List[Dict] = []
     delay = 1.0 / max(1.0, rate_limit_per_sec)
 
-    with open(in_csv, "r", encoding="utf-8") as f:
+    with open(in_csv, "r", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
         for i, row in enumerate(reader, start=1):
             to_email = (row.get("to_email") or "").strip()
