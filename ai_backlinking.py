@@ -460,13 +460,14 @@ def find_backlink_opportunities(
     """
     search_queries = generate_search_queries(keyword)
     results: list[dict] = []
+    unique: dict[str, dict] = {}
 
     serper_key = serper_api_key or SERPER_API_KEY
     firecrawl_key = firecrawl_api_key or FIRECRAWL_API_KEY
 
     if serper_key and _serper_reachable(serper_key):
         headers = {"X-API-KEY": serper_key, "Content-Type": "application/json"}
-        unique: dict[str, dict] = {}
+        unique = {}
         for q in search_queries:
             if len(unique) >= max_results:
                 break
@@ -537,7 +538,7 @@ def find_backlink_opportunities(
 
     # Finalize (deduped + capped)
     if serper_key:
-        return list(unique.values())
+        return list(unique.values()) if unique else results
     return results
 
 
