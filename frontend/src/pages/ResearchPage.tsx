@@ -418,7 +418,14 @@ function DraftsTable({ rows, onEdit }: { rows: EmailRow[]; onEdit: (idx: number,
         <tbody>
           {rows.map((r, i) => (
             <tr key={i} className="border-b border-white/5 align-top">
-              <td className="py-2 pr-4 text-slate-200">{r.to_email || ''}</td>
+              <td className="py-2 pr-4">
+                <input
+                  value={r.to_email || ''}
+                  onChange={e => onEdit(i, { to_email: e.target.value })}
+                  placeholder="recipient@domain.com"
+                  className="w-64 rounded-md border border-white/15 bg-white/5 px-2 py-1 text-xs text-slate-200"
+                />
+              </td>
               <td className="py-2 pr-4">
                 <input
                   value={r.subject}
