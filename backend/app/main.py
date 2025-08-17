@@ -1,6 +1,10 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
+
+# Ensure environment variables from .env are loaded before importing routers
+load_dotenv()
 
 from app.routers import research, emails, send
 
