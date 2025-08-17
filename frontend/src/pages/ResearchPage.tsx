@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   startResearch,
   getResearchStatus,
@@ -22,7 +22,38 @@ export default function ResearchPage() {
   const [egJobId, setEgJobId] = useState<string | null>(null)
   const [egError, setEgError] = useState<string | null>(null)
   const [egLoading, setEgLoading] = useState(false)
+  const [egProgress, setEgProgress] = useState<number>(0)
   const [drafts, setDrafts] = useState<EmailRow[]>([])
+
+  // Poll email generation status when a job is active
+  useEffect(() => {
+    if (!egJobId) return
+    let stop = false
+    const poll = async () => {
+      try {
+        const s = await getEmailsGenerateStatus(egJobId)
+        if (stop) return
+        setEgProgress(s.progress || 0)
+        if (s.status === 'done') {
+          setDrafts(s.results || [])
+          setEgJobId(null)
+          return
+        }
+        if (s.status === 'error') {
+          setEgError(s.error || 'Email generation failed')
+          setEgJobId(null)
+          return
+        }
+        setTimeout(poll, 1500)
+      } catch (e: any) {
+        if (stop) return
+        setEgError(e?.message || 'Failed to fetch email generation status')
+        setEgJobId(null)
+      }
+    }
+    poll()
+    return () => { stop = true }
+  }, [egJobId])
 
   useEffect(() => {
     if (!jobId) return
@@ -112,6 +143,7 @@ export default function ResearchPage() {
                 <GenerateEmailsPanel
                   disabled={(status.results || []).length === 0}
                   hasSelection={selectedUrls.size > 0}
+                  selectedCount={selectedUrls.size}
                   subject={egForm.subject}
                   take={egForm.take}
                   provider={egForm.provider}
@@ -121,13 +153,18 @@ export default function ResearchPage() {
                     setEgError(null)
                     setDrafts([])
                     if (!jobId) { setEgError('No research job in context'); return }
+                    const selCount = selectedUrls.size
+                    if (selCount < 1 || selCount > 10) {
+                      setEgError('Please select between 1 and 10 rows')
+                      return
+                    }
                     try {
                       setEgLoading(true)
                       const res = await emailsGenerateStart({
                         research_job_id: jobId,
-                        selected_urls: selectedUrls.size ? Array.from(selectedUrls) : undefined,
+                        selected_urls: Array.from(selectedUrls),
                         subject: egForm.subject.trim() || 'Guest post collaboration',
-                        take: Math.min(Math.max(egForm.take, 1), 100),
+                        take: Math.min(Math.max(selCount, 1), 10),
                         provider: egForm.provider,
                         model: egForm.model || undefined,
                       })
@@ -139,7 +176,8 @@ export default function ResearchPage() {
                     }
                   }}
                   error={egError}
-                  loading={egLoading}
+                  loading={egLoading || !!egJobId}
+                  progress={egProgress}
                 />
 
                 <DraftsTable rows={drafts} onEdit={(idx, patch) => {
@@ -205,6 +243,7 @@ function ResultsTable({ rows, selected, onToggleSelect, onEditEmail }: {
 function GenerateEmailsPanel({
   disabled,
   hasSelection,
+  selectedCount,
   subject,
   take,
   provider,
@@ -213,9 +252,11 @@ function GenerateEmailsPanel({
   onStart,
   error,
   loading,
+  progress,
 }: {
   disabled: boolean
   hasSelection: boolean
+  selectedCount: number
   subject: string
   take: number
   provider: 'gemini' | 'openai'
@@ -224,18 +265,19 @@ function GenerateEmailsPanel({
   onStart: () => Promise<void>
   error: string | null
   loading: boolean
+  progress?: number
 }) {
   return (
     <div className="mt-6 rounded-lg border border-white/10 p-4">
-      <div className="mb-3 text-sm text-slate-300">Generate personalized email drafts {hasSelection ? '(using selected rows)' : '(using top rows)'}.</div>
+      <div className="mb-3 text-sm text-slate-300">Generate personalized email drafts {hasSelection ? `(using ${selectedCount} selected ${selectedCount===1?'row':'rows'})` : '(select 1–10 rows)'}.</div>
       <div className="flex flex-wrap items-end gap-3">
         <div>
           <div className="text-xs text-slate-400">Subject</div>
           <input value={subject} onChange={e => onChange({ subject: e.target.value })} className="rounded-md border border-white/15 bg-white/5 px-2 py-1 text-sm" />
         </div>
         <div>
-          <div className="text-xs text-slate-400">Take</div>
-          <input type="number" value={take} min={1} max={100} onChange={e => onChange({ take: Number(e.target.value || 5) })} className="w-24 rounded-md border border-white/15 bg-white/5 px-2 py-1 text-sm" />
+          <div className="text-xs text-slate-400">Take (1–10)</div>
+          <input type="number" value={Math.min(Math.max(take,1),10)} min={1} max={10} onChange={e => onChange({ take: Math.min(Math.max(Number(e.target.value || 5),1),10) })} className="w-24 rounded-md border border-white/15 bg-white/5 px-2 py-1 text-sm" />
         </div>
         <div>
           <div className="text-xs text-slate-400">Provider</div>
@@ -252,6 +294,7 @@ function GenerateEmailsPanel({
           {loading ? 'Starting…' : 'Generate Emails'}
         </button>
       </div>
+      {loading && progress !== undefined && <div className="mt-2 text-xs text-slate-400">Progress: {Math.round((progress||0)*100)}%</div>}
       {error && <div className="mt-2 text-sm text-amber-300">{error}</div>}
     </div>
   )
