@@ -43,6 +43,17 @@ export type EmailGenerateStatus = {
   saved_csv_path?: string | null;
 };
 
+export type SendStartResponse = { job_id: string };
+export type SendOutcomeRow = { row?: number | string; to_email?: string; status?: string; code?: string; message?: string };
+export type SendStatusResponse = {
+  job_id: string;
+  status: 'queued' | 'running' | 'done' | 'error';
+  progress: number;
+  error?: string | null;
+  results?: SendOutcomeRow[] | null;
+  saved_csv_path?: string | null;
+};
+
 export async function startResearch(keyword: string, maxResults = 10): Promise<ResearchStartResponse> {
   const res = await fetch(`${API_BASE}/research/start`, {
     method: 'POST',
@@ -92,6 +103,40 @@ export async function getEmailsGenerateStatus(jobId: string): Promise<EmailGener
   if (!res.ok) {
     const txt = await res.text().catch(() => '');
     throw new Error(`Email generation status failed (${res.status}): ${txt}`);
+  }
+  return res.json();
+}
+
+export async function sendStart(params: {
+  provider: 'sendgrid' | 'mailersend' | 'smtp';
+  from_email: string;
+  rows?: Array<{ to_email: string; subject: string; body: string }>;
+  in_csv?: string;
+  rate_limit_per_sec?: number;
+  dry_run?: boolean;
+  sandbox?: boolean;
+  smtp_host?: string;
+  smtp_port?: number;
+  smtp_user?: string;
+  smtp_pass?: string;
+}): Promise<SendStartResponse> {
+  const res = await fetch(`${API_BASE}/send/start`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error(`Start send failed (${res.status}): ${txt}`);
+  }
+  return res.json();
+}
+
+export async function getSendStatus(jobId: string): Promise<SendStatusResponse> {
+  const res = await fetch(`${API_BASE}/send/status/${jobId}`);
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error(`Send status failed (${res.status}): ${txt}`);
   }
   return res.json();
 }

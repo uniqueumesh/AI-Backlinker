@@ -25,6 +25,14 @@ export default function ResearchPage() {
   const [egProgress, setEgProgress] = useState<number>(0)
   const [drafts, setDrafts] = useState<EmailRow[]>([])
 
+  // Phase 4 state (sending)
+  const [sendForm, setSendForm] = useState({ provider: 'smtp' as 'sendgrid' | 'mailersend' | 'smtp', from_email: '', rate_limit_per_sec: 10, dry_run: true, sandbox: false })
+  const [sendJobId, setSendJobId] = useState<string | null>(null)
+  const [sendError, setSendError] = useState<string | null>(null)
+  const [sendLoading, setSendLoading] = useState(false)
+  const [sendProgress, setSendProgress] = useState<number>(0)
+  const [sendResults, setSendResults] = useState<Array<{ row?: number | string; to_email?: string; status?: string; code?: string; message?: string }>>([])
+
   // Poll email generation status when a job is active
   useEffect(() => {
     if (!egJobId) return
@@ -54,6 +62,43 @@ export default function ResearchPage() {
     poll()
     return () => { stop = true }
   }, [egJobId])
+
+  // Prefill from_email when user enters their email in Phase 3
+  useEffect(() => {
+    if (egForm.your_email && !sendForm.from_email) {
+      setSendForm(s => ({ ...s, from_email: egForm.your_email }))
+    }
+  }, [egForm.your_email])
+
+  // Poll send status
+  useEffect(() => {
+    if (!sendJobId) return
+    let stop = false
+    const poll = async () => {
+      try {
+        const s = await getSendStatus(sendJobId)
+        if (stop) return
+        setSendProgress(s.progress || 0)
+        if (s.status === 'done') {
+          setSendResults(s.results || [])
+          setSendJobId(null)
+          return
+        }
+        if (s.status === 'error') {
+          setSendError(s.error || 'Sending failed')
+          setSendJobId(null)
+          return
+        }
+        setTimeout(poll, 1500)
+      } catch (e: any) {
+        if (stop) return
+        setSendError(e?.message || 'Failed to fetch send status')
+        setSendJobId(null)
+      }
+    }
+    poll()
+    return () => { stop = true }
+  }, [sendJobId])
 
   useEffect(() => {
     if (!jobId) return
@@ -187,6 +232,47 @@ export default function ResearchPage() {
                 <DraftsTable rows={drafts} onEdit={(idx, patch) => {
                   setDrafts(prev => prev.map((r, i) => i === idx ? { ...r, ...patch } : r))
                 }} />
+
+                <SendPanel
+                  disabled={drafts.length === 0}
+                  provider={sendForm.provider}
+                  from_email={sendForm.from_email}
+                  rate_limit_per_sec={sendForm.rate_limit_per_sec}
+                  dry_run={sendForm.dry_run}
+                  sandbox={sendForm.sandbox}
+                  onChange={(f) => setSendForm(prev => ({ ...prev, ...f }))}
+                  onStart={async () => {
+                    setSendError(null)
+                    setSendResults([])
+                    if (!drafts.length) { setSendError('No drafts to send'); return }
+                    const rows = drafts
+                      .filter(r => (r.to_email || '').trim())
+                      .map(r => ({ to_email: r.to_email, subject: r.subject, body: r.body }))
+                    if (!rows.length) { setSendError('No valid recipient emails in drafts'); return }
+                    if (!sendForm.from_email.trim()) { setSendError('Please enter From Email'); return }
+                    try {
+                      setSendLoading(true)
+                      const res = await sendStart({
+                        provider: sendForm.provider,
+                        from_email: sendForm.from_email.trim(),
+                        rows,
+                        rate_limit_per_sec: sendForm.rate_limit_per_sec,
+                        dry_run: sendForm.dry_run,
+                        sandbox: sendForm.sandbox,
+                      })
+                      setSendJobId(res.job_id)
+                    } catch (e: any) {
+                      setSendError(e?.message || 'Failed to start sending')
+                    } finally {
+                      setSendLoading(false)
+                    }
+                  }}
+                  error={sendError}
+                  loading={sendLoading || !!sendJobId}
+                  progress={sendProgress}
+                />
+
+                <OutcomesTable rows={sendResults} />
               </>
             )}
           </div>
@@ -348,6 +434,100 @@ function DraftsTable({ rows, onEdit }: { rows: EmailRow[]; onEdit: (idx: number,
                   className="w-full rounded-md border border-white/15 bg-white/5 p-2 text-xs"
                 />
               </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function SendPanel({
+  disabled,
+  provider,
+  from_email,
+  rate_limit_per_sec,
+  dry_run,
+  sandbox,
+  onChange,
+  onStart,
+  error,
+  loading,
+  progress,
+}: {
+  disabled: boolean
+  provider: 'sendgrid' | 'mailersend' | 'smtp'
+  from_email: string
+  rate_limit_per_sec: number
+  dry_run: boolean
+  sandbox: boolean
+  onChange: (patch: Partial<{ provider: 'sendgrid' | 'mailersend' | 'smtp'; from_email: string; rate_limit_per_sec: number; dry_run: boolean; sandbox: boolean }>) => void
+  onStart: () => Promise<void>
+  error: string | null
+  loading: boolean
+  progress?: number
+}) {
+  return (
+    <div className="mt-6 rounded-lg border border-white/10 p-4">
+      <div className="mb-3 text-sm text-slate-300">Send emails from the drafts below (defaults to dry-run).</div>
+      <div className="flex flex-wrap items-end gap-3">
+        <div>
+          <div className="text-xs text-slate-400">Provider</div>
+          <select value={provider} onChange={e => onChange({ provider: e.target.value as any })} className="rounded-md border border-white/15 bg-white/5 px-2 py-1 text-sm">
+            <option value="smtp">smtp</option>
+            <option value="sendgrid">sendgrid</option>
+            <option value="mailersend">mailersend</option>
+          </select>
+        </div>
+        <div>
+          <div className="text-xs text-slate-400">From Email</div>
+          <input value={from_email} onChange={e => onChange({ from_email: e.target.value })} placeholder="you@domain.com" className="w-64 rounded-md border border-white/15 bg-white/5 px-2 py-1 text-sm" />
+        </div>
+        <div>
+          <div className="text-xs text-slate-400">Rate limit (per sec)</div>
+          <input type="number" value={rate_limit_per_sec} min={1} max={100} onChange={e => onChange({ rate_limit_per_sec: Number(e.target.value || 10) })} className="w-24 rounded-md border border-white/15 bg-white/5 px-2 py-1 text-sm" />
+        </div>
+        <label className="inline-flex items-center gap-2 text-xs text-slate-300">
+          <input type="checkbox" checked={dry_run} onChange={e => onChange({ dry_run: e.target.checked })} /> dry-run
+        </label>
+        {provider === 'sendgrid' && (
+          <label className="inline-flex items-center gap-2 text-xs text-slate-300">
+            <input type="checkbox" checked={sandbox} onChange={e => onChange({ sandbox: e.target.checked })} /> sendgrid sandbox
+          </label>
+        )}
+        <button disabled={disabled || loading} onClick={onStart} className="rounded-md bg-indigo-400 px-4 py-2 text-sm font-bold text-black disabled:opacity-60">
+          {loading ? 'Starting…' : 'Send Emails'}
+        </button>
+      </div>
+      {loading && progress !== undefined && <div className="mt-2 text-xs text-slate-400">Progress: {Math.round((progress||0)*100)}%</div>}
+      {error && <div className="mt-2 text-sm text-amber-300">{error}</div>}
+    </div>
+  )
+}
+
+function OutcomesTable({ rows }: { rows: Array<{ row?: number | string; to_email?: string; status?: string; code?: string; message?: string }> }) {
+  if (!rows || rows.length === 0) return null
+  return (
+    <div className="mt-4 overflow-x-auto">
+      <div className="mb-2 text-sm text-slate-300">Send outcomes</div>
+      <table className="w-full text-left text-sm">
+        <thead className="border-b border-white/10 text-slate-300">
+          <tr>
+            <th className="py-2 pr-4">Row</th>
+            <th className="py-2 pr-4">To</th>
+            <th className="py-2 pr-4">Status</th>
+            <th className="py-2 pr-4">Code</th>
+            <th className="py-2 pr-4">Message</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i} className="border-b border-white/5 align-top">
+              <td className="py-2 pr-4 text-slate-200">{r.row ?? ''}</td>
+              <td className="py-2 pr-4 text-slate-200">{r.to_email ?? ''}</td>
+              <td className="py-2 pr-4 text-slate-200">{r.status ?? ''}</td>
+              <td className="py-2 pr-4 text-slate-200">{r.code ?? ''}</td>
+              <td className="py-2 pr-4 text-slate-400">{r.message ?? ''}</td>
             </tr>
           ))}
         </tbody>
