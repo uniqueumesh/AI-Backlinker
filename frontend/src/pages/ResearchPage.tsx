@@ -1,5 +1,12 @@
-import { useEffect, useState } from 'react'
-import { startResearch, getResearchStatus, type ResearchStatus } from '../services/api'
+import { useEffect, useMemo, useState } from 'react'
+import {
+  startResearch,
+  getResearchStatus,
+  emailsGenerateStart,
+  getEmailsGenerateStatus,
+  type ResearchStatus,
+  type EmailRow,
+} from '../services/api'
 import { SignedIn } from '@clerk/clerk-react'
 
 export default function ResearchPage() {
@@ -8,6 +15,14 @@ export default function ResearchPage() {
   const [status, setStatus] = useState<ResearchStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [selectedUrls, setSelectedUrls] = useState<Set<string>>(new Set())
+
+  // Phase 3 state
+  const [egForm, setEgForm] = useState({ subject: 'Guest post collaboration', take: 5, provider: 'gemini' as 'gemini' | 'openai', model: '' })
+  const [egJobId, setEgJobId] = useState<string | null>(null)
+  const [egError, setEgError] = useState<string | null>(null)
+  const [egLoading, setEgLoading] = useState(false)
+  const [drafts, setDrafts] = useState<EmailRow[]>([])
 
   useEffect(() => {
     if (!jobId) return
@@ -75,7 +90,62 @@ export default function ResearchPage() {
               <div className="text-sm text-rose-300">{status.error || 'Job failed'}</div>
             )}
             {status.status === 'done' && (
-              <ResultsTable rows={status.results || []} />
+              <>
+                <ResultsTable
+                  rows={status.results || []}
+                  selected={selectedUrls}
+                  onToggleSelect={(url) => setSelectedUrls(prev => {
+                    const next = new Set(prev)
+                    if (next.has(url)) next.delete(url); else next.add(url)
+                    return next
+                  })}
+                  onEditEmail={(url, email) => {
+                    // Update local table email for the displayed rows
+                    setStatus(s => {
+                      if (!s || !s.results) return s
+                      const updated = (s.results || []).map(r => r.url === url ? { ...r, contact_email: email } as any : r)
+                      return { ...s, results: updated }
+                    })
+                  }}
+                />
+
+                <GenerateEmailsPanel
+                  disabled={(status.results || []).length === 0}
+                  hasSelection={selectedUrls.size > 0}
+                  subject={egForm.subject}
+                  take={egForm.take}
+                  provider={egForm.provider}
+                  model={egForm.model}
+                  onChange={(f) => setEgForm(prev => ({ ...prev, ...f }))}
+                  onStart={async () => {
+                    setEgError(null)
+                    setDrafts([])
+                    if (!jobId) { setEgError('No research job in context'); return }
+                    try {
+                      setEgLoading(true)
+                      const res = await emailsGenerateStart({
+                        research_job_id: jobId,
+                        selected_urls: selectedUrls.size ? Array.from(selectedUrls) : undefined,
+                        subject: egForm.subject.trim() || 'Guest post collaboration',
+                        take: Math.min(Math.max(egForm.take, 1), 100),
+                        provider: egForm.provider,
+                        model: egForm.model || undefined,
+                      })
+                      setEgJobId(res.job_id)
+                    } catch (e: any) {
+                      setEgError(e?.message || 'Failed to start email generation')
+                    } finally {
+                      setEgLoading(false)
+                    }
+                  }}
+                  error={egError}
+                  loading={egLoading}
+                />
+
+                <DraftsTable rows={drafts} onEdit={(idx, patch) => {
+                  setDrafts(prev => prev.map((r, i) => i === idx ? { ...r, ...patch } : r))
+                }} />
+              </>
             )}
           </div>
         )}
@@ -84,7 +154,12 @@ export default function ResearchPage() {
   )
 }
 
-function ResultsTable({ rows }: { rows: NonNullable<ResearchStatus['results']> }) {
+function ResultsTable({ rows, selected, onToggleSelect, onEditEmail }: {
+  rows: NonNullable<ResearchStatus['results']>
+  selected: Set<string>
+  onToggleSelect: (url: string) => void
+  onEditEmail: (url: string, email: string) => void
+}) {
   if (!rows || rows.length === 0) {
     return <div className="text-sm text-slate-400">No results found for this keyword.</div>
   }
@@ -93,6 +168,7 @@ function ResultsTable({ rows }: { rows: NonNullable<ResearchStatus['results']> }
       <table className="w-full text-left text-sm">
         <thead className="border-b border-white/10 text-slate-300">
           <tr>
+            <th className="py-2 pr-4">Select</th>
             <th className="py-2 pr-4">URL</th>
             <th className="py-2 pr-4">Domain</th>
             <th className="py-2 pr-4">Title</th>
@@ -103,11 +179,116 @@ function ResultsTable({ rows }: { rows: NonNullable<ResearchStatus['results']> }
         <tbody>
           {rows.map((r, i) => (
             <tr key={i} className="border-b border-white/5 align-top">
+              <td className="py-2 pr-4">
+                <input type="checkbox" checked={selected.has(r.url)} onChange={() => onToggleSelect(r.url)} />
+              </td>
               <td className="py-2 pr-4 text-indigo-300 underline underline-offset-2"><a href={r.url} target="_blank" rel="noreferrer">{r.url}</a></td>
               <td className="py-2 pr-4 text-slate-200">{r.domain || ''}</td>
               <td className="py-2 pr-4 text-slate-200">{r.title || ''}</td>
-              <td className="py-2 pr-4 text-slate-200">{r.contact_email || ''}</td>
+              <td className="py-2 pr-4 text-slate-200">
+                <input
+                  defaultValue={r.contact_email || ''}
+                  placeholder="name@domain.com"
+                  className="w-56 rounded-md border border-white/15 bg-white/5 px-2 py-1 text-xs"
+                  onBlur={e => onEditEmail(r.url, e.target.value.trim())}
+                />
+              </td>
               <td className="py-2 pr-4 text-slate-400">{(r.page_excerpt || '').slice(0, 160)}{(r.page_excerpt || '').length > 160 ? '…' : ''}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function GenerateEmailsPanel({
+  disabled,
+  hasSelection,
+  subject,
+  take,
+  provider,
+  model,
+  onChange,
+  onStart,
+  error,
+  loading,
+}: {
+  disabled: boolean
+  hasSelection: boolean
+  subject: string
+  take: number
+  provider: 'gemini' | 'openai'
+  model: string
+  onChange: (patch: Partial<{ subject: string; take: number; provider: 'gemini' | 'openai'; model: string }>) => void
+  onStart: () => Promise<void>
+  error: string | null
+  loading: boolean
+}) {
+  return (
+    <div className="mt-6 rounded-lg border border-white/10 p-4">
+      <div className="mb-3 text-sm text-slate-300">Generate personalized email drafts {hasSelection ? '(using selected rows)' : '(using top rows)'}.</div>
+      <div className="flex flex-wrap items-end gap-3">
+        <div>
+          <div className="text-xs text-slate-400">Subject</div>
+          <input value={subject} onChange={e => onChange({ subject: e.target.value })} className="rounded-md border border-white/15 bg-white/5 px-2 py-1 text-sm" />
+        </div>
+        <div>
+          <div className="text-xs text-slate-400">Take</div>
+          <input type="number" value={take} min={1} max={100} onChange={e => onChange({ take: Number(e.target.value || 5) })} className="w-24 rounded-md border border-white/15 bg-white/5 px-2 py-1 text-sm" />
+        </div>
+        <div>
+          <div className="text-xs text-slate-400">Provider</div>
+          <select value={provider} onChange={e => onChange({ provider: e.target.value as any })} className="rounded-md border border-white/15 bg-white/5 px-2 py-1 text-sm">
+            <option value="gemini">gemini</option>
+            <option value="openai">openai</option>
+          </select>
+        </div>
+        <div>
+          <div className="text-xs text-slate-400">Model (optional)</div>
+          <input value={model} onChange={e => onChange({ model: e.target.value })} placeholder="gemini-2.5-flash / gpt-4o-mini" className="rounded-md border border-white/15 bg-white/5 px-2 py-1 text-sm" />
+        </div>
+        <button disabled={disabled || loading} onClick={onStart} className="rounded-md bg-emerald-400 px-4 py-2 text-sm font-bold text-black disabled:opacity-60">
+          {loading ? 'Starting…' : 'Generate Emails'}
+        </button>
+      </div>
+      {error && <div className="mt-2 text-sm text-amber-300">{error}</div>}
+    </div>
+  )
+}
+
+function DraftsTable({ rows, onEdit }: { rows: EmailRow[]; onEdit: (idx: number, patch: Partial<EmailRow>) => void }) {
+  if (!rows || rows.length === 0) return null
+  return (
+    <div className="mt-4 overflow-x-auto">
+      <div className="mb-2 text-sm text-slate-300">Drafts (review and edit before sending)</div>
+      <table className="w-full text-left text-sm">
+        <thead className="border-b border-white/10 text-slate-300">
+          <tr>
+            <th className="py-2 pr-4">To</th>
+            <th className="py-2 pr-4">Subject</th>
+            <th className="py-2 pr-4">Body</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i} className="border-b border-white/5 align-top">
+              <td className="py-2 pr-4 text-slate-200">{r.to_email || ''}</td>
+              <td className="py-2 pr-4">
+                <input
+                  value={r.subject}
+                  onChange={e => onEdit(i, { subject: e.target.value })}
+                  className="w-72 rounded-md border border-white/15 bg-white/5 px-2 py-1 text-xs"
+                />
+              </td>
+              <td className="py-2 pr-4">
+                <textarea
+                  value={r.body}
+                  onChange={e => onEdit(i, { body: e.target.value })}
+                  rows={4}
+                  className="w-full rounded-md border border-white/15 bg-white/5 p-2 text-xs"
+                />
+              </td>
             </tr>
           ))}
         </tbody>
