@@ -18,7 +18,7 @@ export default function ResearchPage() {
   const [selectedUrls, setSelectedUrls] = useState<Set<string>>(new Set())
 
   // Phase 3 state
-  const [egForm, setEgForm] = useState({ subject: 'Guest post collaboration', take: 5, provider: 'gemini' as 'gemini' | 'openai', model: '' })
+  const [egForm, setEgForm] = useState({ subject: 'Guest post collaboration', take: 5, provider: 'gemini' as 'gemini' | 'openai', model: '', your_name: '', your_email: '' })
   const [egJobId, setEgJobId] = useState<string | null>(null)
   const [egError, setEgError] = useState<string | null>(null)
   const [egLoading, setEgLoading] = useState(false)
@@ -148,6 +148,8 @@ export default function ResearchPage() {
                   take={egForm.take}
                   provider={egForm.provider}
                   model={egForm.model}
+                  your_name={egForm.your_name}
+                  your_email={egForm.your_email}
                   onChange={(f) => setEgForm(prev => ({ ...prev, ...f }))}
                   onStart={async () => {
                     setEgError(null)
@@ -167,6 +169,8 @@ export default function ResearchPage() {
                         take: Math.min(Math.max(selCount, 1), 10),
                         provider: egForm.provider,
                         model: egForm.model || undefined,
+                        your_name: egForm.your_name || undefined,
+                        your_email: egForm.your_email || undefined,
                       })
                       setEgJobId(res.job_id)
                     } catch (e: any) {
@@ -248,6 +252,8 @@ function GenerateEmailsPanel({
   take,
   provider,
   model,
+  your_name,
+  your_email,
   onChange,
   onStart,
   error,
@@ -261,7 +267,9 @@ function GenerateEmailsPanel({
   take: number
   provider: 'gemini' | 'openai'
   model: string
-  onChange: (patch: Partial<{ subject: string; take: number; provider: 'gemini' | 'openai'; model: string }>) => void
+  your_name: string
+  your_email: string
+  onChange: (patch: Partial<{ subject: string; take: number; provider: 'gemini' | 'openai'; model: string; your_name: string; your_email: string }>) => void
   onStart: () => Promise<void>
   error: string | null
   loading: boolean
@@ -271,6 +279,14 @@ function GenerateEmailsPanel({
     <div className="mt-6 rounded-lg border border-white/10 p-4">
       <div className="mb-3 text-sm text-slate-300">Generate personalized email drafts {hasSelection ? `(using ${selectedCount} selected ${selectedCount===1?'row':'rows'})` : '(select 1–10 rows)'}.</div>
       <div className="flex flex-wrap items-end gap-3">
+        <div>
+          <div className="text-xs text-slate-400">Your Name</div>
+          <input value={your_name} onChange={e => onChange({ your_name: e.target.value })} placeholder="John Doe" className="rounded-md border border-white/15 bg-white/5 px-2 py-1 text-sm" />
+        </div>
+        <div>
+          <div className="text-xs text-slate-400">Your Email</div>
+          <input value={your_email} onChange={e => onChange({ your_email: e.target.value })} placeholder="john@example.com" className="rounded-md border border-white/15 bg-white/5 px-2 py-1 text-sm" />
+        </div>
         <div>
           <div className="text-xs text-slate-400">Subject</div>
           <input value={subject} onChange={e => onChange({ subject: e.target.value })} className="rounded-md border border-white/15 bg-white/5 px-2 py-1 text-sm" />

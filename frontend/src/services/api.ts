@@ -72,6 +72,8 @@ export async function emailsGenerateStart(params: {
   take: number;
   provider: 'gemini' | 'openai';
   model?: string;
+  your_name?: string;
+  your_email?: string;
 }): Promise<EmailGenerateStartResponse> {
   const res = await fetch(`${API_BASE}/emails/generate/start`, {
     method: 'POST',
