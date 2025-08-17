@@ -4,6 +4,8 @@ import {
   getResearchStatus,
   emailsGenerateStart,
   getEmailsGenerateStatus,
+  getSendStatus,
+  sendStart,
   type ResearchStatus,
   type EmailRow,
 } from '../services/api'
