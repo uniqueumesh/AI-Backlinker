@@ -1,0 +1,37 @@
+# Node
+frontend/node_modules/
+node_modules/
+dist/
+build/
+*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.env.*
+.venv/
+venv/
+env/
+backend/.venv/
+backend/venv/
+backend/env/
+
+# App outputs
+data/
+backend/data/
+*.csv
+
+# Tooling caches
+.cache/
+coverage/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
