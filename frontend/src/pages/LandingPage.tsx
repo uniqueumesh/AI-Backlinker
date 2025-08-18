@@ -1,7 +1,7 @@
 import React, { useState, useEffect, type ReactNode } from 'react'
 import { createTheme, ThemeProvider, styled } from '@mui/material/styles'
 import { Typography, Button, Container, Box, Grid, Card, CardContent, CircularProgress, TextField, List, ListItem, ListItemText } from '@mui/material'
-import { motion } from 'framer-motion'
+import { motion, Variants } from 'framer-motion'
 import { SignInButton } from '@clerk/clerk-react'
 // MUI Icons imports
 import SearchIcon from '@mui/icons-material/Search'
@@ -170,9 +170,9 @@ const FeatureCard = ({ icon: Icon, title, description, index, cardVariants }: an
 }
 
 export default function LandingPage() {
-  const containerVariants = { hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.15 } } }
-  const itemVariants = { hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0, transition: { type: 'spring', damping: 12, stiffness: 100 } } }
-  const cardVariants = { offscreen: { y: 50, opacity: 0 }, onscreen: { y: 0, opacity: 1, transition: { type: 'spring', bounce: 0.4, duration: 0.8 } } }
+  const containerVariants: Variants = { hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.15 } } }
+  const itemVariants: Variants = { hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0, transition: { type: 'spring', damping: 12, stiffness: 100 } } }
+  const cardVariants: Variants = { offscreen: { y: 50, opacity: 0 }, onscreen: { y: 0, opacity: 1, transition: { type: 'spring', bounce: 0.4, duration: 0.8 } } }
 
   // AI Demo states (stubbed)
   const [emailDraft, setEmailDraft] = useState('')
@@ -220,7 +220,7 @@ export default function LandingPage() {
                 </Typography>
               </motion.div>
               <motion.div variants={itemVariants}>
-                <SignInButton mode="modal" redirectUrl="/">
+                <SignInButton mode="modal" forceRedirectUrl="/">
                   <PillPrimary endIcon={<span style={{ display: 'inline-block', transform: 'translateY(1px)' }}>›</span>}>
                     Get Started
                   </PillPrimary>
@@ -232,7 +232,7 @@ export default function LandingPage() {
 
         {/* Feature Section */}
         <Container component="section" id="features" maxWidth="lg" sx={{ py: { xs: 8, md: 12 }, px: 2, zIndex: 1, backgroundColor: '#0A0A1A' }}>
-          <GradientText component="h2" variant="h2" sx={{ textAlign: 'center', mb: { xs: 8, md: 12 } }}>ALwrity Features: Beyond Traditional Outreach</GradientText>
+          <GradientText as="h2" variant="h2" sx={{ textAlign: 'center', mb: { xs: 8, md: 12 } }}>ALwrity Features: Beyond Traditional Outreach</GradientText>
           <Grid container spacing={4}>
             {[
               { icon: SearchIcon, title: 'AI‑Powered Web Research & Prospecting', description: 'Automatically discover high‑authority websites and relevant opportunities using your keywords.' },
@@ -251,7 +251,7 @@ export default function LandingPage() {
 
         {/* Manual vs ALwrity section */}
         <Container component="section" maxWidth="lg" sx={{ py: { xs: 8, md: 12 }, px: 2, zIndex: 1, backgroundColor: '#0A0A1A' }}>
-          <GradientText component="h2" variant="h2" sx={{ textAlign: 'center', mb: { xs: 8, md: 12 } }}>
+          <GradientText as="h2" variant="h2" sx={{ textAlign: 'center', mb: { xs: 8, md: 12 } }}>
             The Backlinking Evolution: Manual vs. ALwrity
           </GradientText>
           <Grid container spacing={6} alignItems="flex-start">
@@ -297,7 +297,7 @@ export default function LandingPage() {
         {/* AI Demo Sections (Stubbed) */}
         <Container component="section" maxWidth="md" sx={{ textAlign: 'center', py: { xs: 8, md: 12 }, px: 2, zIndex: 1, backgroundColor: '#0A0A1A' }}>
           <motion.div initial={{ opacity: 0, y: 50 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, amount: 0.5 }} transition={{ duration: 0.8 }}>
-            <GradientText component="h2" variant="h2" sx={{ mb: 4 }}>Refine Your Outreach with AI ✨</GradientText>
+            <GradientText as="h2" variant="h2" sx={{ mb: 4 }}>Refine Your Outreach with AI ✨</GradientText>
             <Typography variant="h6" sx={{ color: 'text.secondary', mb: 4 }}>Paste your email draft below and see an improved version.</Typography>
             <TextField label="Your Email Draft" multiline rows={6} fullWidth variant="outlined" value={emailDraft} onChange={(e) => setEmailDraft(e.target.value)} sx={{ mb: 3 }} />
             <PillPrimary onClick={refineEmailDraft} disabled={isRefining} endIcon={<span style={{ display: 'inline-block', transform: 'translateY(1px)' }}>›</span>}>
@@ -315,7 +315,7 @@ export default function LandingPage() {
 
         <Container component="section" maxWidth="md" sx={{ textAlign: 'center', py: { xs: 8, md: 12 }, px: 2, zIndex: 1, backgroundColor: '#0A0A1A' }}>
           <motion.div initial={{ opacity: 0, y: 50 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, amount: 0.5 }} transition={{ duration: 0.8 }}>
-            <GradientText component="h2" variant="h2" sx={{ mb: 4 }}>Optimize Your Subject Lines with AI ✨</GradientText>
+            <GradientText as="h2" variant="h2" sx={{ mb: 4 }}>Optimize Your Subject Lines with AI ✨</GradientText>
             <Typography variant="h6" sx={{ color: 'text.secondary', mb: 4 }}>Enter context and get 5 suggestions.</Typography>
             <TextField label="Subject Line Context" multiline rows={3} fullWidth variant="outlined" value={subjectLineInput} onChange={(e) => setSubjectLineInput(e.target.value)} sx={{ mb: 3 }} />
             <PillPrimary onClick={optimizeSubjectLine} disabled={isOptimizingSubjectLine} endIcon={<span style={{ display: 'inline-block', transform: 'translateY(1px)' }}>›</span>}>
@@ -334,9 +334,9 @@ export default function LandingPage() {
         {/* Final CTA Section */}
         <Container component="section" maxWidth="md" sx={{ textAlign: 'center', py: { xs: 8, md: 12 }, px: 2, zIndex: 1, backgroundColor: '#0A0A1A' }}>
           <motion.div initial={{ opacity: 0, y: 50 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, amount: 0.5 }} transition={{ duration: 0.8 }}>
-            <GradientText component="h2" variant="h2" sx={{ mb: 4 }}>Ready to Redefine Your Domain Authority?</GradientText>
+            <GradientText as="h2" variant="h2" sx={{ mb: 4 }}>Ready to Redefine Your Domain Authority?</GradientText>
             <Typography variant="h6" sx={{ color: 'text.secondary', mb: 6 }}>Join the future of backlinking with ALwrity Backlinker.</Typography>
-            <SignInButton mode="modal" redirectUrl="/">
+            <SignInButton mode="modal" forceRedirectUrl="/">
               <PillPrimary>Get Started with ALwrity Today</PillPrimary>
             </SignInButton>
           </motion.div>
