@@ -1,25 +1,36 @@
 """
-AI Backlinker - Main entry point for CLI and imports
+AI Backlinker Backend Package - Complete modularized backend
 """
-from . import (
-    main,
+# Core functions
+from .ai_backlinking_core import main
+from .scraping import (
     find_backlink_opportunities,
     scrape_website,
-    search_for_urls,
+    search_for_urls
+)
+from .llm import (
     llm_text_gen,
-    compose_personalized_email,
+    compose_personalized_email
+)
+from .emails import (
     generate_emails_for_rows,
     send_email,
-    send_follow_up_email,
+    send_follow_up_email
+)
+from .utils import (
     find_backlink_opportunities_for_keywords,
-    build_row_from_url,
+    build_row_from_url
+)
+
+# Email providers
+from .email_providers import (
     send_bulk_smtp,
     send_bulk_sendgrid,
     send_bulk_mailersend
 )
 
-# Re-export main functions for backward compatibility
 __all__ = [
+    # Core functions
     'main',
     'find_backlink_opportunities',
     'scrape_website',
@@ -31,10 +42,8 @@ __all__ = [
     'send_follow_up_email',
     'find_backlink_opportunities_for_keywords',
     'build_row_from_url',
+    # Email providers
     'send_bulk_smtp',
     'send_bulk_sendgrid',
     'send_bulk_mailersend'
 ]
-
-if __name__ == "__main__":
-    main()

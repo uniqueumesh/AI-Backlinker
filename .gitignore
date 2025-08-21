@@ -35,3 +35,6 @@ coverage/
 .DS_Store
 Thumbs.db
 .vscode/
+
+#docs
+.md

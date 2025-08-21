@@ -2,11 +2,19 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+import os
 
 # Ensure environment variables from .env are loaded before importing routers
-load_dotenv()
+# Look for .env in root directory (parent of backend folder)
+env_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
+load_dotenv(env_path)
 
-from app.routers import research, emails, send
+from app.routers.research.start_research import router as research_start_router
+from app.routers.research.status import router as research_status_router
+from app.routers.emails.start_generation import router as emails_start_router
+from app.routers.emails.status import router as emails_status_router
+from app.routers.send.start_send import router as send_start_router
+from app.routers.send.status import router as send_status_router
 
 
 class HealthResponse(BaseModel):
@@ -41,10 +49,13 @@ def create_app() -> FastAPI:
     def health() -> HealthResponse:
         return HealthResponse(status="ok", service="ai-backlinker", version=app.version or "0.0.0")
 
-    # Routers
-    app.include_router(research.router)
-    app.include_router(emails.router)
-    app.include_router(send.router)
+    # Include individual router functions
+    app.include_router(research_start_router)
+    app.include_router(research_status_router)
+    app.include_router(emails_start_router)
+    app.include_router(emails_status_router)
+    app.include_router(send_start_router)
+    app.include_router(send_status_router)
 
     return app
 

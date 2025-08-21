@@ -1,8 +1,9 @@
+import React from 'react'
+import { ResearchPage } from './pages/research'
+import LandingPage from './pages/LandingPage'
 import { ClerkProvider, SignedIn, SignedOut, SignOutButton } from '@clerk/clerk-react'
 import { ThemeProvider, createTheme, CssBaseline, AppBar, Toolbar, Button, Container, Box, Typography, IconButton } from '@mui/material'
 import MenuIcon from '@mui/icons-material/Menu'
-import ResearchPage from './pages/ResearchPage'
-import LandingPage from './pages/LandingPage'
 
 const rawClerkKey = (import.meta as any).env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined
 const CLERK_PUBLISHABLE_KEY = (rawClerkKey || '').trim()

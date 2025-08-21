@@ -53,17 +53,12 @@ class EmailGenerateStartRequest(BaseModel):
     subject: str = Field("Guest post collaboration")
     your_name: str = Field("John Doe")
     your_email: str = Field("john@example.com")
-    topic: Optional[str] = Field(None, description="Proposed topic")
+    topic: Optional[str] = Field(None, description="Proposed topic (optional)")
     take: int = Field(5, ge=1, le=100)
 
     # LLM config
     provider: str = Field("gemini")
     model: Optional[str] = Field(None)
-    gemini_key: Optional[str] = None
-    openai_key: Optional[str] = None
-
-    # Optional CSV output path; default to data/emails_{job_id}.csv
-    out_csv: Optional[str] = None
 
 
 class EmailRow(BaseModel):
@@ -103,7 +98,7 @@ class SendEmailRow(BaseModel):
 
 
 class SendStartRequest(BaseModel):
-    provider: str = Field(..., description="sendgrid | mailersend | smtp")
+    provider: str = Field("smtp", description="sendgrid | mailersend | smtp")
     from_email: str
 
     # Input source
@@ -113,15 +108,16 @@ class SendStartRequest(BaseModel):
     rate_limit_per_sec: float = Field(10.0, ge=0.1, le=100.0)
     dry_run: bool = False
 
-    # Provider-specific
+    # Provider-specific (optional - will use environment variables for SMTP)
     sandbox: Optional[bool] = Field(None, description="SendGrid sandbox mode")
     sendgrid_key: Optional[str] = None
     mailersend_key: Optional[str] = None
 
-    smtp_host: Optional[str] = None
-    smtp_port: Optional[int] = None
-    smtp_user: Optional[str] = None
-    smtp_pass: Optional[str] = None
+    # SMTP fields are now optional - will use environment variables if not provided
+    smtp_host: Optional[str] = Field(None, description="SMTP server (optional - uses SMTP_HOST from .env)")
+    smtp_port: Optional[int] = Field(None, description="SMTP port (optional - uses SMTP_PORT from .env)")
+    smtp_user: Optional[str] = Field(None, description="SMTP username (optional - uses SMTP_USER from .env)")
+    smtp_pass: Optional[str] = Field(None, description="SMTP password (optional - uses SMTP_PASS from .env)")
 
     # Output
     out_csv: Optional[str] = Field(None, description="Where to save outcomes CSV (default data/send_{job_id}.csv)")

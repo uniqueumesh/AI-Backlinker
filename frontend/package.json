@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": "22.x"
+    "node": ">=18.0.0"
   },
   "scripts": {
     "dev": "vite",
@@ -22,7 +22,6 @@
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
-    "@rollup/rollup-linux-x64-gnu": "^4.9.5",
     "@types/react": "^18.2.23",
     "@types/react-dom": "^18.2.8",
     "@vitejs/plugin-react": "^4.3.1",
@@ -30,6 +29,6 @@
     "postcss": "^8.4.41",
     "tailwindcss": "^3.4.10",
     "typescript": "^5.5.4",
-    "vite": "^5.3.5"
+    "vite": "^7.1.3"
   }
 }
