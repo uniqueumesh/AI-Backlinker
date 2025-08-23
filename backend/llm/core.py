@@ -88,32 +88,51 @@ def compose_personalized_email(
     Returns:
         str: A personalized email message.
     """
-    contact_name = website_data.get("contact_info", {}).get("name", "Webmaster")
-    # Prefer explicit metadata title, else domain as site name
-    site_name = website_data.get("metadata", {}).get("title") or website_data.get("domain") or "your site"
+    # Fix data access - use actual available fields
+    contact_name = website_data.get("contact_name", "") or "Webmaster"
+    site_name = website_data.get("title", "") or website_data.get("domain", "") or "your site"
     proposed_topic = user_proposal.get("topic", "a guest post")
     user_name = user_proposal.get("user_name", "Your Name")
     user_email = user_proposal.get("user_email", "your_email@example.com")
-
+    
+    # Extract additional context for better personalization
+    domain = website_data.get("domain", "")
+    url = website_data.get("url", "")
+    page_excerpt = insights or "No content available"
+    
+    # Enhanced prompt engineering for Gemini
     email_prompt = f"""
-You are an AI assistant tasked with composing a highly personalized outreach email for guest posting.
+You are an expert outreach specialist who writes highly personalized, compelling guest post proposals. Your goal is to create emails that show genuine research and offer real value to the target website.
 
-Contact Name: {contact_name}
-Website Name: {site_name}
-Proposed Topic: {proposed_topic}
+TARGET WEBSITE ANALYSIS:
+- URL: {url}
+- Domain: {domain}
+- Site Name: {site_name}
+- Content Excerpt: {page_excerpt[:800] if len(page_excerpt) > 800 else page_excerpt}
 
-User Details:
-Name: {user_name}
-Email: {user_email}
+YOUR PROFILE:
+- Name: {user_name}
+- Email: {user_email}
+- Proposed Topic: {proposed_topic}
 
-Website Insights: {insights}
+CRITICAL REQUIREMENTS:
+1. **Personalized Greeting**: Start with "Dear [Domain] Team" or similar professional greeting
+2. **Show Research**: Reference 1-2 specific content themes or topics from their site excerpt
+3. **Specific Proposal**: Propose a concrete, relevant guest post topic that fits their content strategy
+4. **Value Proposition**: Explain clearly what value you'll provide to their audience
+5. **Professional Tone**: Keep it friendly but professional, under 150 words
+6. **Clear CTA**: Include a specific call-to-action (e.g., "Would you be interested in discussing this opportunity?")
+7. **Contact Info**: End with your name and email
 
-Please compose a professional and engaging email that includes:
-1. A personalized introduction addressing the recipient.
-2. A mention of the website's content focus.
-3. A proposal for a guest post.
-4. A call to action to discuss the guest post opportunity.
-5. A polite closing with user contact details.
+EMAIL STRUCTURE:
+- Greeting (1 line)
+- Research acknowledgment (2-3 lines showing you've studied their content)
+- Specific proposal (2-3 lines with concrete topic)
+- Value explanation (2-3 lines about benefits)
+- Call to action (1-2 lines)
+- Professional closing with contact details
+
+IMPORTANT: Make the email feel like it was written specifically for this website based on their actual content. Don't be generic - reference specific themes or topics from their page excerpt.
 """
 
     return llm_text_gen(
