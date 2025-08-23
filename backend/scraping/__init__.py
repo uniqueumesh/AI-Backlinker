@@ -6,13 +6,22 @@ from .core import (
     generate_search_queries, 
     search_for_urls, 
     scrape_website,
+)
+
+from .content_extraction import (
     _collect_page_text,
     _strip_html_tags,
     _collapse_whitespace,
     _http_fetch_text,
+)
+
+from .email_extraction import (
     _extract_emails,
-    _extract_links,
     _choose_best_email,
+)
+
+from .link_extraction import (
+    _extract_links,
     _classify_support_links
 )
 
