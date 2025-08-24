@@ -11,14 +11,10 @@ from loguru import logger
 from .content_extraction import _collect_page_text, _strip_html_tags, _collapse_whitespace, _http_fetch_text
 from .email_extraction import _extract_emails, _choose_best_email
 from .link_extraction import _extract_links, _classify_support_links
+from .serper import _get_serper_api_key, _serper_reachable, generate_search_queries, _sanitize_keyword
 
 # Remove static environment variable loading - will read dynamically
-# SERPER_API_KEY = os.getenv("SERPER_API_KEY")
 # FIRECRAWL_API_KEY = os.getenv("FIRECRAWL_API_KEY")
-
-def _get_serper_api_key():
-    """Get SERPER_API_KEY dynamically from environment"""
-    return os.getenv("SERPER_API_KEY")
 
 def _get_firecrawl_api_key():
     """Get FIRECRAWL_API_KEY dynamically from environment"""
@@ -63,62 +59,6 @@ def _compose_notes(row: dict, keyword: str) -> str:
         notes.append(f"Page excerpt: {excerpt}")
     
     return "; ".join(notes) if notes else "No additional notes"
-
-
-def _sanitize_keyword(keyword):
-    """Sanitize keyword by removing common guest post footprints."""
-    base = keyword or ""
-    footprints = [
-        "write for us", "guest post", "submit guest post", "guest contributor",
-        "become a guest blogger", "editorial guidelines", "contribute", "submit article",
-        "inurl:write-for-us", "intitle:write for us"
-    ]
-    low = base.lower()
-    for f in footprints:
-        low = low.replace(f, " ")
-    # collapse spaces
-    cleaned = " ".join(low.split())
-    return cleaned
-
-
-def generate_search_queries(keyword):
-    keyword = _sanitize_keyword(keyword)
-    """
-    Generate a list of search queries for finding guest post opportunities.
-
-    Args:
-        keyword (str): The keyword to base the search queries on.
-
-    Returns:
-        list: A list of search queries.
-    """
-    return [
-        f"{keyword} 'write for us'",
-        f"{keyword} 'guest post'",
-        f"{keyword} 'submit guest post'",
-        f"{keyword} 'guest contributor'",
-        f"{keyword} 'become a guest blogger'",
-        f"{keyword} 'editorial guidelines'",
-        f"{keyword} 'contribute'",
-        f"{keyword} 'submit article'",
-    ]
-
-
-def _serper_reachable(api_key: str) -> bool:
-    """Best-effort check to avoid spamming errors when offline or DNS fails.
-    Returns False quickly if https://google.serper.dev is not reachable.
-    """
-    try:
-        # Lightweight GET to the root with short timeout. Some environments block HEAD.
-        httpx.get(
-            "https://google.serper.dev",
-            timeout=3,
-            headers={"X-API-KEY": api_key} if api_key else None,
-        )
-        return True
-    except Exception as exc:
-        logger.warning(f"Serper appears unreachable (network/DNS): {exc}. Skipping search.")
-        return False
 
 
 def find_backlink_opportunities(
