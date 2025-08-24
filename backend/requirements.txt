@@ -8,3 +8,5 @@ sendgrid==6.11.0
 mailersend==0.5.0
 fastapi==0.112.1
 uvicorn==0.30.6
+beautifulsoup4==4.12.3
+lxml==5.1.0
