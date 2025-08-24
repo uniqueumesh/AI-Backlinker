@@ -12,33 +12,10 @@ from .content_extraction import _collect_page_text, _strip_html_tags, _collapse_
 from .email_extraction import _extract_emails, _choose_best_email
 from .link_extraction import _extract_links, _classify_support_links
 from .serper import _get_serper_api_key, _serper_reachable, generate_search_queries, _sanitize_keyword
-
-# Remove static environment variable loading - will read dynamically
-# FIRECRAWL_API_KEY = os.getenv("FIRECRAWL_API_KEY")
-
-def _get_firecrawl_api_key():
-    """Get FIRECRAWL_API_KEY dynamically from environment"""
-    return os.getenv("FIRECRAWL_API_KEY")
+from .firecrawl import _get_firecrawl_api_key, scrape_website, scrape_url
 
 
-def scrape_website(url: str, firecrawl_api_key: str | None = None):
-    """Scrape a URL via Firecrawl if configured; otherwise return empty dict."""
-    key = firecrawl_api_key or _get_firecrawl_api_key()
-    if not key:
-        return {}
-    try:
-        # Firecrawl Python SDK import at runtime to avoid hard dep if absent
-        from firecrawl import FirecrawlApp
-        app = FirecrawlApp(api_key=key)
-        data = app.scrape_url(url, formats=["markdown", "html"])  # type: ignore
-        return data or {}
-    except Exception as exc:
-        logger.warning(f"Firecrawl scrape failed for {url}: {exc}")
-        return {}
 
-
-def scrape_url(url: str, firecrawl_api_key: str | None = None):
-    return scrape_website(url, firecrawl_api_key)
 
 
 def _compose_notes(row: dict, keyword: str) -> str:
