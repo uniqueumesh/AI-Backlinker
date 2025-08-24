@@ -5,8 +5,7 @@ AI Backlinker Backend Package - Complete modularized backend
 from .ai_backlinking_core import main
 from .scraping import (
     find_backlink_opportunities,
-    scrape_website,
-    search_for_urls
+    scrape_website
 )
 from .llm import (
     llm_text_gen,
@@ -34,7 +33,6 @@ __all__ = [
     'main',
     'find_backlink_opportunities',
     'scrape_website',
-    'search_for_urls',
     'llm_text_gen',
     'compose_personalized_email',
     'generate_emails_for_rows',

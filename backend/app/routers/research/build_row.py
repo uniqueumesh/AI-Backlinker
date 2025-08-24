@@ -1,8 +1,7 @@
 """
 Build research row from URL - extracts website data and contact information
 """
-from scraping import scrape_website, _collect_page_text, _strip_html_tags, _collapse_whitespace, _extract_emails, _http_fetch_text
-from utils import _choose_best_email, _extract_links, _classify_support_links
+from scraping import scrape_website, _collect_page_text, _strip_html_tags, _collapse_whitespace, _extract_emails, _http_fetch_text, _choose_best_email, _extract_links, _classify_support_links
 from urllib.parse import urlparse
 
 def _build_row_from_url(url: str, firecrawl_key: str | None) -> dict:

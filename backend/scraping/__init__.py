@@ -3,10 +3,9 @@ Scraping Module Package - web scraping functions
 """
 from .core import (
     find_backlink_opportunities, 
-    generate_search_queries, 
-    search_for_urls, 
-    scrape_website,
 )
+from .serper import generate_search_queries
+from .firecrawl import scrape_website
 
 from .content_extraction import (
     _collect_page_text,
@@ -28,7 +27,6 @@ from .link_extraction import (
 __all__ = [
     'find_backlink_opportunities',
     'generate_search_queries',
-    'search_for_urls',
     'scrape_website',
     '_collect_page_text',
     '_strip_html_tags',
