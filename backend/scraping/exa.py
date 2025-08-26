@@ -252,6 +252,71 @@ async def _probe_domain_for_guidelines(domain: str, api_key: str) -> str:
     return ""
 
 
+async def _probe_domain_for_contact_forms(domain: str, api_key: str) -> str:
+    """
+    Probe a domain for common contact form and submission paths.
+    
+    Args:
+        domain (str): Domain to probe (e.g., 'example.com')
+        api_key (str): Exa API key
+    
+    Returns:
+        str: URL of contact form page if found, empty string otherwise
+    """
+    common_paths = [
+        "/contact",
+        "/contact-us",
+        "/get-in-touch",
+        "/reach-us",
+        "/write-to-us",
+        "/submit",
+        "/submission",
+        "/pitch",
+        "/proposal",
+        "/inquiry",
+        "/editorial-team",
+        "/editorial team",
+        "/contact/",
+        "/contact-us/",
+        "/get-in-touch/",
+        "/reach-us/",
+        "/write-to-us/",
+        "/submit/",
+        "/submission/",
+        "/pitch/",
+        "/proposal/",
+        "/inquiry/",
+        "/editorial-team/",
+        "/editorial team/"
+    ]
+    
+    for path in common_paths:
+        try:
+            test_url = f"https://{domain}{path}"
+            response = _make_exa_request_with_retry(
+                "https://api.exa.ai/search",
+                headers={"X-API-KEY": api_key},
+                json_data={
+                    "query": f"site:{domain} {path}",
+                    "type": "neural",
+                    "numResults": 1,
+                    "text": True
+                }
+            )
+            
+            if response and response.json().get("results"):
+                result = response.json()["results"][0]
+                if result.get("url") and any(indicator in result.get("url", "").lower() for indicator in ["contact", "submit", "pitch", "proposal", "inquiry", "editorial"]):
+                    logger.info(f"Found contact form page for {domain}: {result['url']}")
+                    return result["url"]
+                    
+        except Exception as e:
+            logger.debug(f"Error probing {domain}{path}: {e}")
+            continue
+    
+    return ""
+
+
 async def search_with_exa(keyword: str, max_results: int = 3) -> List[Dict[str, Any]]:
     """
     Search for backlink opportunities using Exa API.
@@ -358,6 +423,19 @@ async def search_with_exa(keyword: str, max_results: int = 3) -> List[Dict[str, 
                 except Exception:
                     pass
                 
+                # Extract contact form URL if result looks like a contact/submission page
+                try:
+                    contact_indicators = [
+                        "contact", "contact-us", "contact us", "get-in-touch", "get in touch",
+                        "reach-us", "reach us", "submit", "submission", "write-to-us", "write to us",
+                        "editorial-team", "editorial team", "pitch", "proposal", "inquiry"
+                    ]
+                    if any(ind in url_lower for ind in contact_indicators) or any(ind in title_lower for ind in contact_indicators):
+                        row["contact_form_url"] = row["url"]
+                        logger.info(f"Detected contact page from result: {row['contact_form_url']}")
+                except Exception:
+                    pass
+                
                 all_results.append(row)
             
             # Rate limiting delay between queries
@@ -377,6 +455,16 @@ async def search_with_exa(keyword: str, max_results: int = 3) -> List[Dict[str, 
             if guidelines_url:
                 result["guidelines_url"] = guidelines_url
                 logger.info(f"Found guidelines URL for {result['domain']}: {guidelines_url}")
+    
+    # Probe domains without contact form URLs for common contact paths
+    logger.info("Probing domains without contact form URLs for common contact paths...")
+    for result in all_results:
+        if not result.get("contact_form_url") and result.get("domain"):
+            logger.info(f"Probing {result['domain']} for contact form pages...")
+            contact_form_url = await _probe_domain_for_contact_forms(result["domain"], api_key)
+            if contact_form_url:
+                result["contact_form_url"] = contact_form_url
+                logger.info(f"Found contact form URL for {result['domain']}: {contact_form_url}")
     
     logger.info(f"Exa search completed. Found {len(all_results)} results")
     return all_results
