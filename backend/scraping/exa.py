@@ -125,18 +125,35 @@ def _sanitize_keyword(keyword):
 def generate_exa_search_queries(keyword):
     keyword = _sanitize_keyword(keyword)
     """
-    Generate optimized search queries for finding guest post opportunities.
+    Generate comprehensive search queries for finding guest post opportunities.
     
-    Enhanced with industry targeting, content type focus, and contact discovery.
+    Enhanced with extensive guest post keyword combinations for maximum coverage.
 
     Args:
         keyword (str): The keyword to base the search queries on.
 
     Returns:
-        list: A list of optimized search queries.
+        list: A comprehensive list of guest post search queries.
     """
-    # Base guest post queries
-    base_queries = [
+    # Comprehensive guest post queries
+    guest_post_queries = [
+        f"{keyword} 'Guest Contributor'",
+        f"{keyword} 'Add Guest Post'",
+        f"{keyword} 'Guest Bloggers Wanted'",
+        f"{keyword} 'Guest Posts Roundup'",
+        f"{keyword} 'Write for Us'",
+        f"{keyword} 'Submit Guest Post'",
+        f"{keyword} 'Submit a Guest Article'",
+        f"{keyword} 'Guest Bloggers Wanted'",
+        f"{keyword} 'Submit an article'",
+        f"{keyword} 'Suggest a guest post'",
+        f"{keyword} 'Send a guest post'",
+        f"{keyword} 'Become a Guest Blogger'",
+        f"{keyword} 'guest post opportunities'",
+        f"{keyword} 'this is a guest post by'",
+        f"{keyword} 'This post was written by'",
+        f"{keyword} 'guest post courtesy of'",
+        f"{keyword} 'submit article'",
         f"{keyword} 'write for us'",
         f"{keyword} 'guest post'",
         f"{keyword} 'submit guest post'",
@@ -144,7 +161,6 @@ def generate_exa_search_queries(keyword):
         f"{keyword} 'become a guest blogger'",
         f"{keyword} 'editorial guidelines'",
         f"{keyword} 'contribute'",
-        f"{keyword} 'submit article'",
     ]
     
     # Industry and content type targeting
@@ -166,7 +182,7 @@ def generate_exa_search_queries(keyword):
     ]
     
     # Combine all query types
-    all_queries = base_queries + industry_queries + contact_queries
+    all_queries = guest_post_queries + industry_queries + contact_queries
     
     # Remove duplicates while preserving order
     seen = set()
@@ -177,6 +193,63 @@ def generate_exa_search_queries(keyword):
             unique_queries.append(query)
     
     return unique_queries
+
+
+async def _probe_domain_for_guidelines(domain: str, api_key: str) -> str:
+    """
+    Probe a domain for common guest post guideline paths.
+    
+    Args:
+        domain (str): Domain to probe (e.g., 'example.com')
+        api_key (str): Exa API key
+    
+    Returns:
+        str: URL of guidelines page if found, empty string otherwise
+    """
+    common_paths = [
+        "/write-for-us",
+        "/guest-post",
+        "/submit-article", 
+        "/contribute",
+        "/submission-guidelines",
+        "/editorial-guidelines",
+        "/guest-blogger",
+        "/guest-contributor",
+        "/write-for-us/",
+        "/guest-post/",
+        "/submit-article/",
+        "/contribute/",
+        "/submission-guidelines/",
+        "/editorial-guidelines/",
+        "/guest-blogger/",
+        "/guest-contributor/"
+    ]
+    
+    for path in common_paths:
+        try:
+            test_url = f"https://{domain}{path}"
+            response = _make_exa_request_with_retry(
+                "https://api.exa.ai/search",
+                headers={"X-API-KEY": api_key},
+                json_data={
+                    "query": f"site:{domain} {path}",
+                    "type": "neural",
+                    "numResults": 1,
+                    "text": True
+                }
+            )
+            
+            if response and response.json().get("results"):
+                result = response.json()["results"][0]
+                if result.get("url") and any(indicator in result.get("url", "").lower() for indicator in ["write-for-us", "guest-post", "submit", "guidelines", "contribute"]):
+                    logger.info(f"Found guidelines page for {domain}: {result['url']}")
+                    return result["url"]
+                    
+        except Exception as e:
+            logger.debug(f"Error probing {domain}{path}: {e}")
+            continue
+    
+    return ""
 
 
 async def search_with_exa(keyword: str, max_results: int = 3) -> List[Dict[str, Any]]:
@@ -267,6 +340,24 @@ async def search_with_exa(keyword: str, max_results: int = 3) -> List[Dict[str, 
                     "content_extras": {}  # Will be filled by content retrieval
                 }
                 
+                # Extract guidelines URL if result itself looks like a guidelines/guest-post page
+                try:
+                    url_lower = (row["url"] or "").lower()
+                    title_lower = (row["title"] or "").lower()
+                    guideline_indicators = [
+                        "write-for-us", "write for us", "guest-post", "guest post",
+                        "submit-guest-post", "submit a guest article", "submit article",
+                        "submission-guidelines", "submission guidelines", "editorial-guidelines",
+                        "editorial guidelines", "contribute", "become-a-guest-blogger",
+                        "guest blogger", "guest contributor", "guest bloggers wanted",
+                        "guest posts roundup"
+                    ]
+                    if any(ind in url_lower for ind in guideline_indicators) or any(ind in title_lower for ind in guideline_indicators):
+                        row["guidelines_url"] = row["url"]
+                        logger.info(f"Detected guidelines page from result: {row['guidelines_url']}")
+                except Exception:
+                    pass
+                
                 all_results.append(row)
             
             # Rate limiting delay between queries
@@ -276,6 +367,16 @@ async def search_with_exa(keyword: str, max_results: int = 3) -> List[Dict[str, 
         except Exception as e:
             logger.error(f"Error executing query '{query}': {e}")
             continue
+    
+    # Probe domains without guidelines URLs for common guest post paths
+    logger.info("Probing domains without guidelines URLs for common guest post paths...")
+    for result in all_results:
+        if not result.get("guidelines_url") and result.get("domain"):
+            logger.info(f"Probing {result['domain']} for guidelines pages...")
+            guidelines_url = await _probe_domain_for_guidelines(result["domain"], api_key)
+            if guidelines_url:
+                result["guidelines_url"] = guidelines_url
+                logger.info(f"Found guidelines URL for {result['domain']}: {guidelines_url}")
     
     logger.info(f"Exa search completed. Found {len(all_results)} results")
     return all_results
