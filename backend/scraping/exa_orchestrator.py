@@ -6,111 +6,167 @@ the Exa backlink research process, managing search queries, scraping,
 and data compilation. Separated from core scraping to enable future
 extensibility and cleaner architecture.
 """
-import httpx
-from urllib.parse import urlparse
+import asyncio
+import time
+from typing import List, Dict, Any
 from loguru import logger
+from .exa import search_with_exa, get_exa_content
 
-# Import required functions from other modules
-from .exa import generate_exa_search_queries, _get_exa_api_key, _exa_reachable, search_with_exa, get_exa_content
-# DISABLED: Firecrawl imports temporarily
-# from .firecrawl import _get_firecrawl_api_key, scrape_website
-# from .content_extraction import _collect_page_text, _strip_html_tags, _collapse_whitespace, _http_fetch_text
-from .email_extraction import _extract_emails, _choose_best_email
-# DISABLED: Link extraction temporarily
-# from .link_extraction import _extract_links, _classify_support_links
-from .data_processing import _compose_notes
-
-
-def find_backlink_opportunities_exa(
-    keyword,
-    exa_api_key: str | None = None,
-    firecrawl_api_key: str | None = None,
-    max_results: int = 10,
-):
+async def find_backlink_opportunities_exa(
+    keywords: List[str],
+    max_results: int = 3,
+    search_depth: int = 2
+) -> List[Dict[str, Any]]:
     """
-    Find backlink opportunities using Exa search with two-phase content retrieval.
-
+    Find backlink opportunities using Exa search provider.
+    
     Args:
-        keyword (str): The keyword to search for backlink opportunities.
-        exa_api_key (str, optional): Exa API key. If not provided, gets from environment.
-        firecrawl_api_key (str, optional): Firecrawl API key. If not provided, gets from environment.
-        max_results (int): Maximum number of results to return.
-
+        keywords: List of keywords to search for
+        max_results: Maximum number of results to return
+        search_depth: How deep to search (1 = basic, 2 = enhanced)
+    
     Returns:
-        list: A list of results from the Exa research with enhanced content.
+        List of opportunity dictionaries
     """
-    # Phase 1: Enhanced Exa search with optimized parameters
-    logger.info(f"Phase 1: Starting enhanced Exa search for keyword: {keyword}")
-    exa_results = search_with_exa(keyword, exa_api_key, max_results)
+    logger.info(f"Starting Exa research with {len(keywords)} keywords, max_results={max_results}")
     
-    if not exa_results:
-        logger.info("No Exa search results found.")
-        return []
+    results = []
     
-    logger.info(f"Phase 1 complete: Found {len(exa_results)} search results")
-    
-    # Phase 2: Get full page content using Exa Get Contents API
-    logger.info("Phase 2: Starting full content retrieval")
-    urls_to_retrieve = [result.get("url") for result in exa_results if result.get("url")]
-    
-    if urls_to_retrieve:
-        content_map = get_exa_content(urls_to_retrieve, exa_api_key)
-        logger.info(f"Phase 2 complete: Retrieved content for {len(content_map)} URLs")
-    else:
-        content_map = {}
-    
-    # Process and enhance results with full content
-    processed_results = []
-    
-    for result in exa_results:
-        if len(processed_results) >= max_results:
-            break
-            
-        url = result.get("url")
-        if not url:
-            continue
-            
+    for keyword in keywords:
+        logger.info(f"Processing keyword: {keyword}")
+        
         try:
-            # Get enhanced content if available
-            enhanced_content = content_map.get(url, {})
+            # Basic search and content retrieval
+            search_results = await search_with_exa(keyword, max_results)
             
-            # Use full text if available, fallback to excerpt
-            full_text = enhanced_content.get("full_text", "")
-            page_text = full_text if full_text else result.get("page_excerpt", "")
+            if not search_results:
+                logger.warning(f"No search results found for keyword: {keyword}")
+                continue
             
-            # Extract emails from enhanced content
-            emails = _extract_emails(page_text)
-            domain = urlparse(url).netloc
-            best_email = _choose_best_email(emails, domain)
+            logger.info(f"Found {len(search_results)} search results for keyword: {keyword}")
             
-            # Update result with enhanced information
-            result.update({
-                "contact_email": best_email,
-                "contact_emails_all": ", ".join(emails[:5]) if emails else "",
-                "contact_form_url": "",  # Will be enhanced in Phase 2
-                "guidelines_url": "",    # Will be enhanced in Phase 2
-                "page_excerpt": page_text,
-                "context_source": "exa_enhanced",
-                # Enhanced content fields
-                "full_page_text": full_text,
-                "page_summary": enhanced_content.get("summary", ""),
-                "content_highlights": enhanced_content.get("highlights", []),
-                "page_author": enhanced_content.get("author", ""),
-                "published_date": enhanced_content.get("published_date", ""),
-                "subpages": enhanced_content.get("subpages", []),
-                "content_extras": enhanced_content.get("extras", {})
-            })
+            # Enhanced content retrieval (if search_depth > 1)
+            if search_depth > 1:
+                logger.info("Starting enhanced content retrieval")
+                
+                # Get URLs for content retrieval
+                urls = [result.get('url', '') for result in search_results if result.get('url')]
+                
+                if urls:
+                    logger.info(f"Retrieving full content for {len(urls)} URLs")
+                    
+                    try:
+                        # Get full content for these URLs
+                        content_results = await get_exa_content(urls)
+                        
+                        if content_results:
+                            logger.info(f"Successfully retrieved content for {len(content_results)} URLs")
+                            
+                            # Merge content with search results
+                            for result in search_results:
+                                url = result.get('url')
+                                if url and url in content_results:
+                                    content_data = content_results[url]
+                                    # Update with enhanced content data
+                                    result.update({
+                                        'full_page_text': content_data.get('full_text', ''),
+                                        'page_summary': content_data.get('summary', ''),
+                                        'content_highlights': content_data.get('highlights', []),
+                                        'page_author': content_data.get('author', ''),
+                                        'published_date': content_data.get('published_date', ''),
+                                        'subpages': content_data.get('subpages', []),
+                                        'content_extras': content_data.get('extras', {}),
+                                        'context_source': 'exa_enhanced'
+                                    })
+                                    # Populate page_excerpt if search didn't provide it
+                                    if not result.get('page_excerpt'):
+                                        summary = content_data.get('summary', '')
+                                        if summary:
+                                            result['page_excerpt'] = summary
+                                        else:
+                                            full_text = content_data.get('full_text', '')
+                                            if full_text:
+                                                result['page_excerpt'] = full_text[:300]
+                                    
+                                    # Debug logging for highlights
+                                    logger.info(f"Highlights for {url}: {result.get('highlights', 'NOT_FOUND')}")
+                                    
+                                    # Populate highlights if search didn't provide them
+                                    if not result.get('highlights') or len(result.get('highlights', [])) == 0:
+                                        logger.info(f"Highlights empty for {url}, applying fallback logic")
+                                        content_highlights = content_data.get('highlights', [])
+                                        if content_highlights and len(content_highlights) > 0:
+                                            result['highlights'] = content_highlights
+                                            logger.info(f"Using content highlights for {url}: {content_highlights}")
+                                        else:
+                                            # Fallback: create basic highlights from summary
+                                            summary = content_data.get('summary', '')
+                                            if summary:
+                                                result['highlights'] = [summary[:100] + "..."]
+                                                logger.info(f"Created highlights from summary for {url}")
+                                            else:
+                                                logger.info(f"No summary available for {url}, trying excerpt fallback")
+                                    
+                                    # Ensure highlights are always populated (final fallback)
+                                    if not result.get('highlights') or len(result.get('highlights', [])) == 0:
+                                        logger.info(f"Final highlights fallback for {url}")
+                                        # Create highlights from page_excerpt if available
+                                        excerpt = result.get('page_excerpt', '')
+                                        if excerpt:
+                                            result['highlights'] = [excerpt[:100] + "..."]
+                                            logger.info(f"Created highlights from excerpt for {url}")
+                                        else:
+                                            # Last resort: create from title
+                                            title = result.get('title', '')
+                                            if title:
+                                                result['highlights'] = [title + " - Guest post opportunity"]
+                                                logger.info(f"Created highlights from title for {url}")
+                                            else:
+                                                result['highlights'] = ["Guest post opportunity available"]
+                                                logger.info(f"Created generic highlights for {url}")
+                                    
+                                    # Final debug logging for highlights
+                                    logger.info(f"Final highlights for {url}: {result.get('highlights', 'STILL_NOT_FOUND')}")
+                                    
+                                    # Mark as not needing content retrieval since we have it
+                                    result['needs_content_retrieval'] = False
+                                else:
+                                    result['context_source'] = 'exa_basic'
+                        else:
+                            logger.warning("Content retrieval returned empty results")
+                            for result in search_results:
+                                result['context_source'] = 'exa_basic'
+                    except Exception as e:
+                        logger.error(f"Error during content retrieval: {e}")
+                        for result in search_results:
+                            result['context_source'] = 'exa_basic'
+                else:
+                    logger.warning("No valid URLs found for content retrieval")
+                    for result in search_results:
+                        result['context_source'] = 'exa_basic'
+            else:
+                # Basic search only
+                for result in search_results:
+                    result['context_source'] = 'exa_basic'
+                    
+                    # Ensure highlights are populated for basic search too
+                    if not result.get('highlights') or len(result.get('highlights', [])) == 0:
+                        # Try to create highlights from available data
+                        excerpt = result.get('page_excerpt', '')
+                        if excerpt:
+                            result['highlights'] = [excerpt[:100] + "..."]
+                        else:
+                            title = result.get('title', '')
+                            if title:
+                                result['highlights'] = [title + " - Guest post opportunity"]
+                            else:
+                                result['highlights'] = ["Guest post opportunity available"]
             
-            # Compose notes with enhanced content
-            result["notes"] = _compose_notes(result, keyword)
+            results.extend(search_results)
             
-            processed_results.append(result)
-            
-        except Exception as exc:
-            logger.warning(f"Failed to process Exa result {url}: {exc}")
-            # Still include the result with basic information
-            result["notes"] = _compose_notes(result, keyword)
-            processed_results.append(result)
+        except Exception as e:
+            logger.error(f"Error processing keyword '{keyword}': {e}")
+            continue
     
-    logger.info(f"Processing complete: {len(processed_results)} results ready")
-    return processed_results
+    logger.info(f"Exa research completed. Total results: {len(results)}")
+    return results

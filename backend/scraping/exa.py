@@ -9,6 +9,7 @@ import os
 import time
 import httpx
 from loguru import logger
+from typing import List, Dict, Any
 
 # Rate limiting configuration
 RATE_LIMIT_DELAY = 0.1  # 100ms between requests
@@ -31,7 +32,7 @@ def _exa_reachable(api_key: str) -> bool:
             "https://api.exa.ai/search",
             headers={"x-api-key": api_key, "Content-Type": "application/json"},
             json={"query": "test", "text": True},
-            timeout=5,
+            timeout=15,
         )
         # If we get any response (even error), the API is reachable
         return True
@@ -178,108 +179,111 @@ def generate_exa_search_queries(keyword):
     return unique_queries
 
 
-def search_with_exa(keyword, exa_api_key: str | None = None, max_results: int = 10):
+async def search_with_exa(keyword: str, max_results: int = 3) -> List[Dict[str, Any]]:
     """
-    Search for backlink opportunities using Exa API with enhanced parameters.
-
+    Search for backlink opportunities using Exa API.
+    
     Args:
-        keyword (str): The keyword to search for backlink opportunities.
-        exa_api_key (str, optional): Exa API key. If not provided, gets from environment.
-        max_results (int): Maximum number of results to return.
-
+        keyword: Search keyword
+        max_results: Maximum number of results to return
+    
     Returns:
-        list: A list of results from the Exa search.
+        List of search result dictionaries
     """
-    key = exa_api_key or _get_exa_api_key()
-    if not key:
-        logger.warning("Exa API key not found. Skipping Exa search.")
+    api_key = _get_exa_api_key()
+    if not api_key:
+        logger.error("EXA_API_KEY: NOT SET")
         return []
     
-    if not _exa_reachable(key):
-        logger.warning("Exa API not reachable. Skipping Exa search.")
+    if not _exa_reachable(api_key):
+        logger.error("Exa API is not reachable")
         return []
     
-    search_queries = generate_exa_search_queries(keyword)
-    results = []
+    # Generate optimized search queries
+    queries = generate_exa_search_queries(keyword)
+    logger.info(f"Generated {len(queries)} search queries for keyword: {keyword}")
     
-    try:
-        headers = {"x-api-key": key, "Content-Type": "application/json"}
-        
-        for i, query in enumerate(search_queries):
-            if len(results) >= max_results:
-                break
+    all_results = []
+    
+    for i, query in enumerate(queries):
+        if len(all_results) >= max_results:
+            break
             
-            # Rate limiting between requests
-            if i > 0:
+        logger.info(f"Executing query {i+1}/{len(queries)}: {query}")
+        
+        try:
+            # Make API request with retry logic
+            response = _make_exa_request_with_retry(
+                "https://api.exa.ai/search",
+                headers={"X-API-KEY": api_key},
+                json_data={
+                    "query": query,
+                    "type": "neural",
+                    "useAutoprompt": True,
+                    "numResults": min(25, max_results - len(all_results)),
+                    "text": True,
+                    "highlights": True,
+                    "includeDomains": [],
+                    "excludeDomains": []
+                }
+            )
+            
+            if not response:
+                logger.warning(f"Query failed: {query}")
+                continue
+            
+            # Process search results
+            for result in response.json().get("results", []):
+                if len(all_results) >= max_results:
+                    break
+                
+                # Debug: Log what fields are available in search result
+                if i == 0:  # Only log for first result to avoid spam
+                    logger.info(f"Search result fields: {list(result.keys())}")
+                    logger.info(f"Text field content: {result.get('text', 'EMPTY')[:100]}...")
+                
+                # Create result row with enhanced content fields
+                row = {
+                    "url": result.get("url", ""),
+                    "domain": result.get("url", "").split("//")[-1].split("/")[0] if result.get("url") else "",
+                    "title": result.get("title", ""),
+                    "contact_email": "",
+                    "contact_emails_all": "",
+                    "contact_form_url": "",
+                    "guidelines_url": "",
+                    "context_source": "exa_search",
+                    "page_excerpt": result.get("text", ""),
+                    "notes": "",
+                    
+                    # Enhanced content fields
+                    "highlights": result.get("highlights", []),
+                    "needs_content_retrieval": True,  # Will be filled by content retrieval
+                    "full_page_text": "",  # Will be filled by content retrieval
+                    "page_summary": "",  # Will be filled by content retrieval
+                    "content_highlights": [],  # Will be filled by content retrieval
+                    "page_author": "",  # Will be filled by content retrieval
+                    "published_date": "",  # Will be filled by content retrieval
+                    "subpages": [],  # Will be filled by content retrieval
+                    "content_extras": {}  # Will be filled by content retrieval
+                }
+                
+                all_results.append(row)
+            
+            # Rate limiting delay between queries
+            if i < len(queries) - 1:  # Don't delay after the last query
                 time.sleep(RATE_LIMIT_DELAY)
                 
-            try:
-                # Phase 1: Enhanced Exa search with optimized parameters
-                response = _make_exa_request_with_retry(
-                    "https://api.exa.ai/search",
-                    headers=headers,
-                    json_data={
-                        "query": query,
-                        "type": "neural",  # AI-powered semantic understanding
-                        "useAutoprompt": True,  # Intelligent query expansion
-                        "numResults": min(25, max_results - len(results)),  # Increased results
-                        "text": True,  # Get text content for each result
-                        "highlights": True,  # Key content identification
-                        "includeDomains": [],  # Target specific website types
-                        "excludeDomains": []  # Filter out irrelevant sites
-                    }
-                )
-                
-                if not response:
-                    logger.warning(f"Exa search failed for '{query}' after retries")
-                    continue
-                
-                data = response.json()
-                
-                # Process Exa results
-                for result in data.get("results", []):
-                    if len(results) >= max_results:
-                        break
-                        
-                    url = result.get("url")
-                    title = result.get("title")
-                    text = result.get("text", "")
-                    highlights = result.get("highlights", [])
-                    
-                    if not url:
-                        continue
-                        
-                    # Create result in same format as Serper for consistency
-                    row = {
-                        "url": url,
-                        "title": title or "",
-                        "contact_email": "",  # Will be extracted later
-                        "contact_emails_all": "",
-                        "contact_form_url": "",
-                        "guidelines_url": "",
-                        "domain": url.split("//")[-1].split("/")[0] if "//" in url else url,
-                        "notes": "",
-                        "page_excerpt": text[:1500] if text else "",
-                        "context_source": "exa",
-                        "highlights": highlights,  # New field for key insights
-                        "needs_content_retrieval": True  # Flag for Phase 2 content retrieval
-                    }
-                    
-                    results.append(row)
-                    
-            except Exception as exc:
-                logger.warning(f"Exa search failed for '{query}': {exc}")
-                continue
-                
-    except Exception as exc:
-        logger.error(f"Exa search failed: {exc}")
+        except Exception as e:
+            logger.error(f"Error executing query '{query}': {e}")
+            continue
     
-    return results
+    logger.info(f"Exa search completed. Found {len(all_results)} results")
+    return all_results
 
 
-def get_exa_content(urls, exa_api_key: str | None = None):
+async def get_exa_content(urls, exa_api_key: str | None = None):
     """
-    Phase 2: Get full page content using Exa Get Contents API.
+    Get full page content using Exa Get Contents API.
     
     Args:
         urls (list): List of URLs to get content for
@@ -297,10 +301,13 @@ def get_exa_content(urls, exa_api_key: str | None = None):
         logger.warning("Exa API not reachable. Skipping content retrieval.")
         return {}
     
+    logger.info(f"Starting content retrieval for {len(urls)} URLs")
+    
     try:
         headers = {"x-api-key": key, "Content-Type": "application/json"}
         
         # Exa Get Contents API call with retry logic
+        logger.info("Calling Exa Get Contents API...")
         response = _make_exa_request_with_retry(
             "https://api.exa.ai/contents",
             headers=headers,
@@ -316,10 +323,21 @@ def get_exa_content(urls, exa_api_key: str | None = None):
             logger.error("Exa content retrieval failed after retries")
             return {}
         
-        data = response.json()
+        logger.info(f"Got response with status: {response.status_code}")
+        
+        try:
+            data = response.json()
+            logger.info(f"Response data keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
+        except Exception as json_exc:
+            logger.error(f"Failed to parse JSON response: {json_exc}")
+            logger.error(f"Response text: {response.text[:500]}")
+            return {}
         
         content_map = {}
-        for result in data.get("results", []):
+        results = data.get("results", [])
+        logger.info(f"Found {len(results)} results in response")
+        
+        for result in results:
             url = result.get("url")
             if url:
                 content_map[url] = {
@@ -332,7 +350,9 @@ def get_exa_content(urls, exa_api_key: str | None = None):
                     "subpages": result.get("subpages", []),
                     "extras": result.get("extras", {})
                 }
+                logger.info(f"Processed content for {url}: text_length={len(content_map[url]['full_text'])}, highlights={len(content_map[url]['highlights'])}")
         
+        logger.info(f"Successfully processed {len(content_map)} URLs")
         return content_map
         
     except Exception as exc:
