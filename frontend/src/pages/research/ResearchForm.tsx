@@ -19,7 +19,7 @@ export function ResearchForm({ onResearchStart, loading, error }: ResearchFormPr
     }
     
     try {
-      const response = await startResearch(keyword.trim(), 10);
+      const response = await startResearch(keyword.trim(), 3);
       onResearchStart(response.job_id);
     } catch (e: any) {
       // Error handling is done by parent component

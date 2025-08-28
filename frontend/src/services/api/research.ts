@@ -9,7 +9,7 @@ import type { ResearchStartResponse, ResearchStatus } from './types';
  */
 export async function startResearch(
   keyword: string, 
-  maxResults = 10
+  maxResults = 3
 ): Promise<ResearchStartResponse> {
   return apiRequest<ResearchStartResponse>('/research/start', {
     method: 'POST',
