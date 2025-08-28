@@ -1,10 +1,10 @@
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 
 
 class ResearchStartRequest(BaseModel):
     keyword: Optional[str] = Field(None, description="Seed keyword for research")
-    max_results: int = Field(10, ge=1, le=50)
+    max_results: int = Field(3, ge=1, le=50)
     urls: Optional[List[str]] = Field(None, description="Override: scrape these URLs instead of searching")
 
     # Optional API keys per request (or rely on env)
@@ -16,16 +16,32 @@ class ResearchStartRequest(BaseModel):
 
 
 class ResearchResultRow(BaseModel):
-    url: str
-    title: str = ""
-    contact_email: str = ""
-    contact_emails_all: str = ""
-    contact_form_url: str = ""
-    guidelines_url: str = ""
-    domain: str = ""
-    notes: str = ""
-    page_excerpt: str = ""
-    context_source: str = ""
+    """Model for a single research result row."""
+    
+    # Basic fields
+    url: str = Field(..., description="The URL of the opportunity")
+    domain: str = Field(..., description="The domain of the opportunity")
+    title: str = Field(..., description="The title of the page")
+    contact_email: str = Field("", description="Primary contact email")
+    contact_emails_all: str = Field("", description="All found contact emails")
+    contact_form_url: str = Field("", description="URL of contact form if found")
+    guidelines_url: str = Field("", description="URL of guest post guidelines if found")
+    context_source: str = Field("", description="Source of the research data")
+    page_excerpt: str = Field("", description="Page excerpt or summary")
+    
+    # Enhanced content fields
+    highlights: List[str] = Field(default_factory=list, description="Key content highlights")
+    needs_content_retrieval: bool = Field(False, description="Whether content retrieval is needed")
+    full_page_text: str = Field("", description="Full page text content")
+    page_summary: str = Field("", description="AI-generated page summary")
+    content_highlights: List[str] = Field(default_factory=list, description="Content highlights from full text")
+    page_author: str = Field("", description="Page author if available")
+    published_date: str = Field("", description="Publication date if available")
+    subpages: List[str] = Field(default_factory=list, description="Related subpages")
+    content_extras: Dict[str, Any] = Field(default_factory=dict, description="Additional content metadata")
+    
+    # Notes field for additional information
+    notes: str = Field("", description="Additional notes about the opportunity")
 
 
 class ResearchStartResponse(BaseModel):
